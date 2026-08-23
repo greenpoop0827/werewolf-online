@@ -106,6 +106,11 @@
             color: #38bdf8;
         }
 
+        .badge-wolfteam {
+            border: 1px solid #e53e3e;
+            color: #f87171;
+        }
+
         .log-box {
             height: 150px;
             overflow-y: auto;
@@ -216,7 +221,6 @@
     <script>
         let socket = io();
         let roomCode = "";
-        // 保持本地 userId，重整時可自動恢復身份
         let myId = localStorage.getItem("werewolf_uid") || ("user_" + Math.floor(Math.random() * 1000000));
         localStorage.setItem("werewolf_uid", myId);
         let myName = "";
@@ -275,8 +279,7 @@
             document.getElementById("display-room").innerText = roomCode;
             document.getElementById("display-name").innerText = myName + (isSpectator ? " (觀眾)" : "");
 
-            // 向伺服器註冊加入房間
-            socket.emit("JOIN_ROOM", {roomId: roomCode, userId: myId, name: myName, isSpectator});
+            socket.emit("JOIN_ROOM", { roomId: roomCode, userId: myId, name: myName, isSpectator });
         }
 
         socket.on("STATE_UPDATE", (serverState) => {
@@ -294,7 +297,7 @@
         });
 
         function dispatchAction(actionType, data = {}) {
-            socket.emit("GAME_ACTION", {roomId: roomCode, userId: myId, actionType, data});
+            socket.emit("GAME_ACTION", { roomId: roomCode, userId: myId, actionType, data });
         }
 
         function logPersonal(text) {
@@ -311,7 +314,7 @@
         function startGame() {
             const preset = document.getElementById("preset-select").value;
             const enableSheriff = document.getElementById("enable-sheriff").checked;
-            dispatchAction("START_GAME", {preset, enableSheriff});
+            dispatchAction("START_GAME", { preset, enableSheriff });
         }
 
         function restartGame() {
@@ -323,19 +326,19 @@
         function guardAction(targetSeat) {
             if (targetSeat > 0) logPersonal(`第 ${state.dayCount} 夜：你選擇守護【${targetSeat}號】。`);
             else logPersonal(`第 ${state.dayCount} 夜：你選擇空守（不守護任何人）。`);
-            dispatchAction("GUARD_ACTION", {targetSeat});
+            dispatchAction("GUARD_ACTION", { targetSeat });
         }
 
         function wolfVote(targetSeat) {
             logPersonal(`第 ${state.dayCount} 夜：選擇襲擊【${targetSeat}號】`);
-            dispatchAction("WOLF_VOTE", {targetSeat});
+            dispatchAction("WOLF_VOTE", { targetSeat });
         }
 
         function witchAction(save, killSeat) {
             if (save) logPersonal(`第 ${state.dayCount} 夜：女巫使用解藥救起 ${state.lastKilled}號。`);
             else if (killSeat) logPersonal(`第 ${state.dayCount} 夜：女巫使用毒藥毒殺【${killSeat}號】。`);
             else logPersonal(`第 ${state.dayCount} 夜：女巫不使用藥劑。`);
-            dispatchAction("WITCH_ACTION", {save, killSeat});
+            dispatchAction("WITCH_ACTION", { save, killSeat });
         }
 
         function seerCheck(targetSeat) {
@@ -344,7 +347,7 @@
             const result = isBad ? "狼人" : "好人";
             logPersonal(`第 ${state.dayCount} 夜：查驗 ${targetSeat}號，身份為【${result}】！`);
             alert(`查驗結果：${targetSeat} 號是【${result}】（已記錄至個人日誌）`);
-            dispatchAction("SEER_CHECK", {targetSeat});
+            dispatchAction("SEER_CHECK", { targetSeat });
         }
 
         function resolveDeathSkill(targetSeat) {
@@ -358,12 +361,12 @@
             } else {
                 logPersonal("你已確認結束出局操作。");
             }
-            dispatchAction("RESOLVE_DEATH_SKILL", {targetSeat});
+            dispatchAction("RESOLVE_DEATH_SKILL", { targetSeat });
         }
 
         function optSheriff(run) {
             logPersonal(run ? "你選擇了【上警】。" : "你選擇了【不上警】。");
-            dispatchAction("OPT_SHERIFF", {run});
+            dispatchAction("OPT_SHERIFF", { run });
         }
 
         function withdrawSheriff() {
@@ -388,17 +391,17 @@
 
         function sheriffCall(targetSeat) {
             logPersonal(`你身為警長，歸票給【${targetSeat === 0 ? "隨意" : targetSeat + "號"}】`);
-            dispatchAction("SHERIFF_CALL", {targetSeat});
+            dispatchAction("SHERIFF_CALL", { targetSeat });
         }
 
         function castVote(targetSeat) {
             logPersonal(`你在投票中投給了【${targetSeat === 0 ? "棄票" : targetSeat + "號"}】`);
-            dispatchAction("CAST_VOTE", {targetSeat});
+            dispatchAction("CAST_VOTE", { targetSeat });
         }
 
         function passSheriff(targetSeat) {
             logPersonal(targetSeat > 0 ? `你將警徽移交給【${targetSeat}號】` : "你選擇了撕毀警徽！");
-            dispatchAction("SHERIFF_PASS", {targetSeat});
+            dispatchAction("SHERIFF_PASS", { targetSeat });
         }
 
         function finishLastWords() {
@@ -406,7 +409,7 @@
         }
 
         function chooseOrder(startSeat, clockwise) {
-            dispatchAction("CHOOSE_ORDER", {startSeat, clockwise});
+            dispatchAction("CHOOSE_ORDER", { startSeat, clockwise });
         }
 
         function toggleRole() {
@@ -416,7 +419,15 @@
                 if (isSpectator) {
                     roleText.innerText = "你是【觀眾】，擁有上帝視角！";
                 } else {
-                    roleText.innerText = me && me.role ? `你的身份是：【${me.role}】` : "遊戲尚未發牌";
+                    let text = me && me.role ? `你的身份是：【${me.role}】` : "遊戲尚未發牌";
+                    // 狼人底牌顯示隊友名單
+                    if (me && ["狼人", "白狼王"].includes(me.role)) {
+                        const wolfmates = state.players
+                            .filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id)
+                            .map(p => `${p.seat}號(${p.name} - ${p.role})`);
+                        text += wolfmates.length > 0 ? `<br/><span style="font-size:14px; color:#f87171;">🐺 你的狼隊友：${wolfmates.join(", ")}</span>` : `<br/><span style="font-size:14px; color:#f87171;">🐺 場上無其他狼隊友</span>`;
+                    }
+                    roleText.innerHTML = text;
                 }
                 roleText.classList.remove("hidden");
             } else {
@@ -427,6 +438,7 @@
         function render() {
             const me = state.players.find(p => p.id === myId) || {};
             const isHost = state.hostId === myId;
+            const isWolfTeam = ["狼人", "白狼王"].includes(me.role);
 
             document.getElementById("host-panel").classList.toggle("hidden", !isHost);
             document.getElementById("setup-controls").classList.toggle("hidden", state.started);
@@ -441,11 +453,15 @@
             document.getElementById("player-count").innerText = gamePlayers.length;
             document.getElementById("spectator-count").innerText = spectators.length;
 
-            document.getElementById("player-list").innerHTML = gamePlayers.map(p => `
-      <div class="player-badge ${!p.alive ? 'dead' : ''} ${p.isSheriff ? 'badge-sheriff' : ''} ${p.idiotRevealed ? 'badge-idiot' : ''}">
-        ${p.seat}號: ${p.name} ${p.isSheriff ? '⭐(警長)' : ''} ${p.idiotRevealed ? '🃏(翻牌白痴)' : ''} ${!p.alive ? '💀' : ''}
-      </div>
-    `).join("");
+            // 渲染場上玩家列表（狼人互認標註）
+            document.getElementById("player-list").innerHTML = gamePlayers.map(p => {
+                const isMyWolfmate = isWolfTeam && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id;
+                return `
+        <div class="player-badge ${!p.alive ? 'dead' : ''} ${p.isSheriff ? 'badge-sheriff' : ''} ${p.idiotRevealed ? 'badge-idiot' : ''} ${isMyWolfmate ? 'badge-wolfteam' : ''}">
+          ${p.seat}號: ${p.name} ${p.isSheriff ? '⭐(警長)' : ''} ${p.idiotRevealed ? '🃏(翻牌白痴)' : ''} ${isMyWolfmate ? `🐺(${p.role})` : ''} ${!p.alive ? '💀' : ''}
+        </div>
+      `;
+            }).join("");
 
             document.getElementById("spectator-list").innerHTML = spectators.length > 0
                 ? `觀眾名單：` + spectators.map(s => `<span class="player-badge badge-spectator">${s.name}</span>`).join(" ")
@@ -565,7 +581,7 @@
 
                 case "NIGHT_WOLF":
                     title.innerText = "🌙 黑夜降臨 - 狼人行動";
-                    if (["狼人", "白狼王"].includes(me.role) && me.alive) {
+                    if (isWolfTeam && me.alive) {
                         const myChoice = state.wolfTargets[myId];
                         inst.innerText = myChoice ? `已選【${myChoice}號】，等待狼隊友統一...` : "請點選目標進行襲擊：";
                         state.players.filter(p => !p.isSpectator && p.alive).forEach(p => {
@@ -683,7 +699,7 @@
 
                     if (me.seat === speaker) {
                         ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的發言</button>`;
-                        if (["狼人", "白狼王"].includes(me.role)) {
+                        if (isWolfTeam) {
                             ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">💥 狼人自爆！</button>`;
                         }
                     } else {
@@ -698,7 +714,7 @@
                     inst.innerText = `PK 發言玩家：【${speaker}號】（平票名單：${state.dayPkCandidates.join(", ")}號）`;
                     if (me.seat === speaker) {
                         ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的 PK 發言</button>`;
-                        if (["狼人", "白狼王"].includes(me.role)) {
+                        if (isWolfTeam) {
                             ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">💥 狼人自爆！</button>`;
                         }
                     } else {

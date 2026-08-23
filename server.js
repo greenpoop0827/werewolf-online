@@ -9,10 +9,8 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-// 託管 public 目錄下的靜態網頁
 app.use(express.static(path.join(__dirname, "public")));
 
-// 儲存所有房間的狀態：{ [roomId]: roomState }
 const rooms = {};
 
 function getDefaultRoomState(roomId) {
@@ -27,7 +25,7 @@ function getDefaultRoomState(roomId) {
     phase: "LOBBY",
     enableSheriff: true,
     sheriff: null,
-    
+
     sheriffRound: 1,
     sheriffCandidates: [],
     sheriffWithdrawn: [],
@@ -45,9 +43,9 @@ function getDefaultRoomState(roomId) {
     activeDeathSeat: null,
     hunterDeathReason: {},
 
-    players: [], // { id, socketId, name, seat, role, alive, isSheriff, idiotRevealed, isSpectator }
+    players: [],
     wolfTargets: {},
-    
+
     guardTarget: null,
     lastGuardTarget: null,
 
@@ -55,7 +53,7 @@ function getDefaultRoomState(roomId) {
     witchPoisonUsed: false,
     witchSaveThisNight: false,
     witchPoisonThisNight: null,
-    
+
     seerCheckLog: null,
     lastKilled: null,
     speakingQueue: [],
@@ -66,32 +64,33 @@ function getDefaultRoomState(roomId) {
   };
 }
 
-// 防作弊資料遮蔽 (Sanitization)
+// 防作弊資料遮蔽 (Sanitization) - 加入狼人互認支援
 function getSanitizedState(state, targetPlayer) {
   const isSpectator = targetPlayer && targetPlayer.isSpectator;
-  const isDead = targetPlayer && !targetPlayer.alive;
   const role = targetPlayer ? targetPlayer.role : null;
+  const isWolfTeam = ["狼人", "白狼王"].includes(role);
 
-  // 觀眾可見全量數據
   if (isSpectator) {
     return state;
   }
 
-  // 複製一份狀態進行遮蔽
   const safeState = JSON.parse(JSON.stringify(state));
 
-  // 隱藏非自己的角色底牌（除非已遊戲結束）
   if (!state.gameOver) {
     safeState.players = safeState.players.map(p => {
+      // 自己的底牌完全可見
       if (targetPlayer && p.id === targetPlayer.id) return p;
-      if (p.idiotRevealed) return p; // 白痴已翻牌可公開
+      // 白痴已翻牌公開
+      if (p.idiotRevealed) return p;
+      // 狼人陣營可以看見彼此（狼人互認）
+      if (isWolfTeam && ["狼人", "白狼王"].includes(p.role)) return p;
+      // 好人牌對其他人一律遮蔽
       return { ...p, role: null };
     });
   }
 
-  // 遮蔽夜間暗盤細節
   if (!state.gameOver) {
-    if (!["狼人", "白狼王"].includes(role)) {
+    if (!isWolfTeam) {
       safeState.wolfTargets = {};
     }
     if (role !== "女巫") {
@@ -105,7 +104,6 @@ function getSanitizedState(state, targetPlayer) {
       safeState.guardTarget = null;
       safeState.lastGuardTarget = null;
     }
-    // 天亮前隱藏受害者
     if (["NIGHT_GUARD", "NIGHT_WOLF", "NIGHT_WITCH", "NIGHT_SEER"].includes(state.phase)) {
       if (role !== "女巫" || state.witchAntidoteUsed) {
         safeState.lastKilled = null;
@@ -130,7 +128,6 @@ function logRoom(state, msg) {
   state.logs.push(msg);
 }
 
-// 狀態機核心判斷
 function checkGameOver(state) {
   const alivePlayers = state.players.filter(p => !p.isSpectator && p.alive);
   const aliveWolves = alivePlayers.filter(p => ["狼人", "白狼王"].includes(p.role));
@@ -222,7 +219,7 @@ function startNight(state) {
   state.sheriffCallTarget = null;
   state.dayPkRound = 1;
   state.dayPkCandidates = [];
-  
+
   if (state.preset === "standard12_wolfking") {
     enterNightPhase(state, "NIGHT_GUARD");
   } else {
@@ -242,6 +239,7 @@ function finishNight(state) {
     if (isGuarded && isSaved) {
       deadSeats.push(wolfTarget);
       state.hunterDeathReason[wolfTarget] = "wolf";
+      logRoom(state, `（系統提示：昨夜有人同守同救奶穿身亡）`);
     } else if (!isGuarded && !isSaved) {
       deadSeats.push(wolfTarget);
       state.hunterDeathReason[wolfTarget] = "wolf";
@@ -317,7 +315,7 @@ function electSheriff(state, seat, reason) {
   p.isSheriff = true;
   state.sheriff = seat;
   logRoom(state, `🎉 ${seat} 號當選警長！(${reason})`);
-  
+
   if (state.dayCount === 1 && state.pendingDeathSeats.length > 0 && state.players.filter(pl => !pl.isSpectator && !pl.alive).length === 0) {
     announceDeathAndStartDay(state);
   } else {
@@ -327,7 +325,7 @@ function electSheriff(state, seat, reason) {
 
 function startDayProcess(state) {
   const aliveSheriff = state.players.find(p => !p.isSpectator && p.isSheriff && p.alive);
-  
+
   if (aliveSheriff) {
     state.phase = "DAY_ORDER_CHOOSE";
     logRoom(state, `請警長 ${aliveSheriff.seat} 號決定發言順序。`);
@@ -344,13 +342,13 @@ function setupDiscussQueue(state, startSeat, clockwise) {
   const aliveSeats = state.players.filter(p => !p.isSpectator && p.alive).map(p => p.seat);
   const total = state.players.filter(p => !p.isSpectator).length;
   const queue = [];
-  
+
   let cur = startSeat;
   for (let i = 0; i < total; i++) {
     if (aliveSeats.includes(cur)) queue.push(cur);
     cur = clockwise ? (cur % total) + 1 : (cur === 1 ? total : cur - 1);
   }
-  
+
   state.speakingQueue = queue;
   state.speakerIdx = 0;
   state.phase = "DAY_DISCUSS";
@@ -422,11 +420,11 @@ function tallyVotes(state) {
   } else {
     if (maxSeat && !isTie) {
       const exiled = state.players.find(p => !p.isSpectator && p.seat === maxSeat);
-      
+
       if (exiled.role === "白痴" && !exiled.idiotRevealed) {
         exiled.idiotRevealed = true;
         logRoom(state, `🃏【白痴翻牌免死】${maxSeat} 號是【白痴】！翻牌免除本次放逐，繼續存活在場，但喪失公投投票權！`);
-        
+
         if (exiled.isSheriff) {
           state.postDeathHandler = "START_NIGHT";
           state.phase = "SHERIFF_TRANSFER";
@@ -452,7 +450,7 @@ function tallyVotes(state) {
         const reverseClockwise = !state.dayDiscussClockwise;
         const startSeat = tieSeats[0];
         const pkQueue = [];
-        
+
         let cur = startSeat;
         for (let i = 0; i < total; i++) {
           if (tieSeats.includes(cur)) pkQueue.push(cur);
@@ -470,7 +468,6 @@ function tallyVotes(state) {
   }
 }
 
-// Socket 連線監聽
 io.on("connection", (socket) => {
   socket.on("JOIN_ROOM", ({ roomId, userId, name, isSpectator }) => {
     if (!rooms[roomId]) {
@@ -501,7 +498,6 @@ io.on("connection", (socket) => {
         return;
       }
     } else {
-      // 斷線重連更新 socketId
       player.socketId = socket.id;
     }
 
@@ -750,13 +746,13 @@ io.on("connection", (socket) => {
           const shotTarget = state.players.find(p => !p.isSpectator && p.seat === targetSeat && p.alive);
           if (shotTarget) {
             shotTarget.alive = false;
-            
+
             if (state.preset === "standard12_wolfking") {
               logRoom(state, `🔫【出局開槍】${deadSeat} 號開槍帶走了 ${shotTarget.seat} 號玩家 (${shotTarget.name})！`);
             } else {
               logRoom(state, `🔫【出局玩家翻牌】${deadSeat} 號是【獵人】！發動技能翻槍帶走了 ${shotTarget.seat} 號玩家 (${shotTarget.name})！`);
             }
-            
+
             if (checkGameOver(state)) {
               broadcastRoomState(roomId);
               return;
