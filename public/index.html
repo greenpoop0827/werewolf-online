@@ -323,6 +323,10 @@
             }
         }
 
+        function hostForceNext() {
+            dispatchAction("HOST_FORCE_NEXT");
+        }
+
         function guardAction(targetSeat) {
             if (targetSeat > 0) logPersonal(`第 ${state.dayCount} 夜：你選擇守護【${targetSeat}號】。`);
             else logPersonal(`第 ${state.dayCount} 夜：你選擇空守（不守護任何人）。`);
@@ -343,7 +347,7 @@
 
         function seerCheck(targetSeat) {
             const target = state.players.find(p => !p.isSpectator && p.seat === targetSeat);
-            const isBad = ["狼人", "白狼王"].includes(target.role);
+            const isBad = target && ["狼人", "白狼王"].includes(target.role);
             const result = isBad ? "狼人" : "好人";
             logPersonal(`第 ${state.dayCount} 夜：查驗 ${targetSeat}號，身份為【${result}】！`);
             alert(`查驗結果：${targetSeat} 號是【${result}】（已記錄至個人日誌）`);
@@ -420,7 +424,6 @@
                     roleText.innerText = "你是【觀眾】，擁有上帝視角！";
                 } else {
                     let text = me && me.role ? `你的身份是：【${me.role}】` : "遊戲尚未發牌";
-                    // 狼人底牌顯示隊友名單
                     if (me && ["狼人", "白狼王"].includes(me.role)) {
                         const wolfmates = state.players
                             .filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id)
@@ -432,6 +435,18 @@
                 roleText.classList.remove("hidden");
             } else {
                 roleText.classList.add("hidden");
+            }
+        }
+
+        function renderHostButton(ctrls, isHost) {
+            if (isHost && state.started && !state.gameOver) {
+                ctrls.innerHTML += `
+        <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #555;">
+          <button class="danger" style="width: 100%;" onclick="hostForceNext()">
+            ⏩ 房主備用強制推進（跳過卡頓/覆寫）
+          </button>
+        </div>
+      `;
             }
         }
 
@@ -453,7 +468,6 @@
             document.getElementById("player-count").innerText = gamePlayers.length;
             document.getElementById("spectator-count").innerText = spectators.length;
 
-            // 渲染場上玩家列表（狼人互認標註）
             document.getElementById("player-list").innerHTML = gamePlayers.map(p => {
                 const isMyWolfmate = isWolfTeam && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id;
                 return `
@@ -506,12 +520,14 @@
             if (state.gameOver) {
                 title.innerText = "🏆 遊戲結束";
                 inst.innerText = `獲勝方：【${state.winner}】！房主可點選上方「🔄 重新開始新的一局」。`;
+                renderHostButton(ctrls, isHost);
                 return;
             }
 
             if (isSpectator) {
                 title.innerText = "👀 上帝視角觀戰中";
                 inst.innerText = `當前階段：【${state.phase}】。你可以觀看所有人的底牌、暗盤行動與公屏日誌。`;
+                renderHostButton(ctrls, isHost);
                 return;
             }
 
@@ -536,6 +552,7 @@
                 } else {
                     inst.innerText = "等待出局玩家確認操作中...";
                 }
+                renderHostButton(ctrls, isHost);
                 return;
             }
 
@@ -551,12 +568,14 @@
                 } else {
                     inst.innerText = "等待前任警長處理警徽...";
                 }
+                renderHostButton(ctrls, isHost);
                 return;
             }
 
             if (!me.alive && state.started && state.phase !== "DAY_LAST_WORDS") {
                 title.innerText = "💀 你已出局";
                 inst.innerText = "出局玩家請保持安靜觀戰。";
+                renderHostButton(ctrls, isHost);
                 return;
             }
 
@@ -803,6 +822,8 @@
                     }
                     break;
             }
+
+            renderHostButton(ctrls, isHost);
         }
     </script>
 </body>
