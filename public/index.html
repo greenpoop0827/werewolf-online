@@ -91,6 +91,11 @@
             text-decoration: line-through;
         }
 
+        .offline {
+            opacity: 0.5;
+            border: 1px dashed #71717a !important;
+        }
+
         .badge-sheriff {
             border: 1px solid #fba94c;
             color: #fba94c;
@@ -142,6 +147,7 @@
 
 <body>
 
+    <!-- 加入房間畫面 -->
     <div id="join-view" class="card">
         <h2>加入狼人殺房間 (線上版)</h2>
         <input type="text" id="room-input" placeholder="房間號" value="888">
@@ -153,6 +159,7 @@
         <button onclick="joinRoom()">進入房間</button>
     </div>
 
+    <!-- 遊戲主畫面 -->
     <div id="game-view" class="hidden">
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -163,13 +170,15 @@
                     <span>狀態：<b id="display-status" style="color:#04d361;">存活</b></span>
                 </div>
                 <div>
-                    <button id="show-role-btn" onclick="toggleRole()">👀 點擊查看底牌</button>
+                    <button id="show-role-btn" onclick="toggleRole()">👀 查看底牌</button>
+                    <button class="danger" onclick="leaveRoom()">🚪 退出房間</button>
                 </div>
             </div>
             <p id="role-text" class="hidden"
                 style="color: #fba94c; font-weight: bold; font-size: 18px; margin: 8px 0 0 0;"></p>
         </div>
 
+        <!-- 上帝視角面板 (觀眾專屬) -->
         <div id="god-panel" class="card god-view hidden">
             <h3 style="color: #38bdf8;">👁️ 觀眾席 - 全知上帝視角</h3>
             <div id="god-player-details" style="margin-bottom: 8px;"></div>
@@ -177,6 +186,7 @@
                 style="font-size: 13px; color: #a1a1aa; border-top: 1px dashed #3f3f46; padding-top: 6px;"></div>
         </div>
 
+        <!-- 房主控制台 -->
         <div id="host-panel" class="card hidden">
             <h3>房主控制台</h3>
             <div id="setup-controls">
@@ -195,18 +205,21 @@
             </div>
         </div>
 
+        <!-- 法官指示與按鈕區 -->
         <div class="card" style="border-left: 4px solid #04d361;">
             <h3 id="phase-title">等待開局</h3>
             <p id="judge-instruction" style="font-size: 16px;">等待所有玩家就緒...</p>
             <div id="action-controls"></div>
         </div>
 
+        <!-- 玩家列表 -->
         <div class="card">
             <h3>場上玩家 (<span id="player-count">0</span>) | 觀眾席 (<span id="spectator-count">0</span>)</h3>
             <div id="player-list"></div>
             <div id="spectator-list" style="margin-top: 8px; font-size: 13px; color: #38bdf8;"></div>
         </div>
 
+        <!-- 日誌區 -->
         <div class="card">
             <div id="personal-log-container">
                 <h3>個人專屬行動日誌（僅自己可見）</h3>
@@ -221,6 +234,7 @@
     <script>
         let socket = io();
         let roomCode = "";
+        // 保持玩家 UID 於本地儲存，重整可無縫復原
         let myId = localStorage.getItem("werewolf_uid") || ("user_" + Math.floor(Math.random() * 1000000));
         localStorage.setItem("werewolf_uid", myId);
         let myName = "";
@@ -282,6 +296,17 @@
             socket.emit("JOIN_ROOM", { roomId: roomCode, userId: myId, name: myName, isSpectator });
         }
 
+        function leaveRoom() {
+            if (confirm("確定要退出目前房間嗎？")) {
+                socket.emit("LEAVE_ROOM", { roomId: roomCode, userId: myId });
+                document.getElementById("game-view").classList.add("hidden");
+                document.getElementById("join-view").classList.remove("hidden");
+                state = { phase: "LOBBY", players: [], logs: [] };
+                myPersonalLogs = [];
+                renderPersonalLogs();
+            }
+        }
+
         socket.on("STATE_UPDATE", (serverState) => {
             if (!state.started && serverState.started === false && serverState.phase === "LOBBY") {
                 myPersonalLogs = [];
@@ -291,7 +316,6 @@
             render();
         });
 
-        // 🌟 核心修復：預言家專屬接收後端未遮蔽的真實驗人結果
         socket.on("SEER_RESULT", ({ dayCount, targetSeat, result }) => {
             logPersonal(`第 ${dayCount} 夜：查驗 ${targetSeat}號，身份為【${result}】！`);
             alert(`查驗結果：${targetSeat} 號是【${result}】（已自動記錄至個人日誌）`);
@@ -351,7 +375,6 @@
             dispatchAction("WITCH_ACTION", { save, killSeat });
         }
 
-        // 🌟 核心修復：前端只負責發送 targetSeat，不做本地角色比對
         function seerCheck(targetSeat) {
             dispatchAction("SEER_CHECK", { targetSeat });
         }
@@ -461,7 +484,7 @@
             document.getElementById("setup-controls").classList.toggle("hidden", state.started);
             document.getElementById("restart-controls").classList.toggle("hidden", !state.started);
 
-            document.getElementById("display-seat").innerText = me.isSpectator ? "觀眾席" : (me.seat || "-");
+            document.getElementById("display-seat").innerText = me.isSpectator ? "觀眾席" : (me.seat ? `${me.seat} 號` : "-");
             document.getElementById("display-status").innerText = me.isSpectator ? "旁觀中" : (me.alive ? (me.idiotRevealed ? "存活(已翻牌)" : "存活") : "已出局 (💀)");
             document.getElementById("display-status").style.color = me.isSpectator ? "#38bdf8" : (me.alive ? (me.idiotRevealed ? "#a855f7" : "#04d361") : "#e53e3e");
 
@@ -470,19 +493,22 @@
             document.getElementById("player-count").innerText = gamePlayers.length;
             document.getElementById("spectator-count").innerText = spectators.length;
 
+            // 渲染場上玩家列表（支援狼人互認與離線標籤）
             document.getElementById("player-list").innerHTML = gamePlayers.map(p => {
                 const isMyWolfmate = isWolfTeam && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id;
+                const offlineTag = !p.online ? `<span style="font-size:11px; color:#a1a1aa;">(離線)</span>` : "";
                 return `
-        <div class="player-badge ${!p.alive ? 'dead' : ''} ${p.isSheriff ? 'badge-sheriff' : ''} ${p.idiotRevealed ? 'badge-idiot' : ''} ${isMyWolfmate ? 'badge-wolfteam' : ''}">
-          ${p.seat}號: ${p.name} ${p.isSheriff ? '⭐(警長)' : ''} ${p.idiotRevealed ? '🃏(翻牌白痴)' : ''} ${isMyWolfmate ? `🐺(${p.role})` : ''} ${!p.alive ? '💀' : ''}
+        <div class="player-badge ${!p.alive ? 'dead' : ''} ${!p.online ? 'offline' : ''} ${p.isSheriff ? 'badge-sheriff' : ''} ${p.idiotRevealed ? 'badge-idiot' : ''} ${isMyWolfmate ? 'badge-wolfteam' : ''}">
+          ${p.seat}號: ${p.name} ${offlineTag} ${p.isSheriff ? '⭐(警長)' : ''} ${p.idiotRevealed ? '🃏(翻牌白痴)' : ''} ${isMyWolfmate ? `🐺(${p.role})` : ''} ${!p.alive ? '💀' : ''}
         </div>
       `;
             }).join("");
 
             document.getElementById("spectator-list").innerHTML = spectators.length > 0
-                ? `觀眾名單：` + spectators.map(s => `<span class="player-badge badge-spectator">${s.name}</span>`).join(" ")
+                ? `觀眾名單：` + spectators.map(s => `<span class="player-badge badge-spectator ${!s.online ? 'offline' : ''}">${s.name}${!s.online ? '(離線)' : ''}</span>`).join(" ")
                 : "";
 
+            // 上帝視角面板
             const godPanel = document.getElementById("god-panel");
             if (isSpectator && state.started) {
                 godPanel.classList.remove("hidden");
@@ -490,6 +516,7 @@
         <div style="display:inline-block; margin: 6px; padding: 6px 10px; background: #27272a; border-radius: 4px; font-size: 13px;">
           <b>${p.seat}號 ${p.name}</b>: <span style="color:#fba94c;">${p.role || '未發牌'}</span> 
           [${p.alive ? (p.idiotRevealed ? '<span style="color:#a855f7;">翻牌存活</span>' : '<span style="color:#04d361;">存活</span>') : '<span style="color:#e53e3e;">死亡</span>'}]
+          ${!p.online ? '<span style="color:#71717a;">(離線)</span>' : ''}
           ${p.isSheriff ? '⭐' : ''}
         </div>
       `).join("");

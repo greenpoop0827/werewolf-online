@@ -43,7 +43,7 @@ function getDefaultRoomState(roomId) {
     activeDeathSeat: null,
     hunterDeathReason: {},
 
-    players: [], // { id, socketId, name, seat, role, alive, isSheriff, idiotRevealed, isSpectator, online }
+    players: [], // { id, socketId, name, seat, role, alive, isSheriff, idiotRevealed, isSpectator, online, lastDisconnectAt }
     wolfTargets: {},
 
     guardTarget: null,
@@ -65,6 +65,7 @@ function getDefaultRoomState(roomId) {
   };
 }
 
+// 防作弊資料遮蔽 (Sanitization)
 function getSanitizedState(state, targetPlayer) {
   const isSpectator = targetPlayer && targetPlayer.isSpectator;
   const role = targetPlayer ? targetPlayer.role : null;
@@ -123,6 +124,19 @@ function broadcastRoomState(roomId) {
 
 function logRoom(state, msg) {
   state.logs.push(msg);
+}
+
+// 重新整理並緊湊排序座位號 (僅在未開局時執行)
+function reorderSeats(state) {
+  if (state.started) return;
+  let seatNum = 1;
+  state.players.forEach(p => {
+    if (!p.isSpectator) {
+      p.seat = seatNum++;
+    } else {
+      p.seat = null;
+    }
+  });
 }
 
 function checkGameOver(state) {
@@ -472,6 +486,7 @@ function tallyVotes(state) {
 }
 
 io.on("connection", (socket) => {
+  // 加入房間 / 斷線重連
   socket.on("JOIN_ROOM", ({ roomId, userId, name, isSpectator }) => {
     if (!rooms[roomId]) {
       rooms[roomId] = getDefaultRoomState(roomId);
@@ -492,7 +507,8 @@ io.on("connection", (socket) => {
           isSheriff: false,
           idiotRevealed: false,
           isSpectator: !!isSpectator,
-          online: true
+          online: true,
+          lastDisconnectAt: null
         };
         state.players.push(player);
         if (!state.hostId) state.hostId = userId;
@@ -502,12 +518,53 @@ io.on("connection", (socket) => {
         return;
       }
     } else {
+      // 玩家斷線重連，更新 Socket ID 與在線狀態
       player.socketId = socket.id;
       player.online = true;
+      player.lastDisconnectAt = null;
       if (name && !state.started) player.name = name;
+      logRoom(state, `${player.name}（${player.seat ? player.seat + '號' : '觀眾'}）已重新連線。`);
     }
 
     socket.join(roomId);
+    broadcastRoomState(roomId);
+  });
+
+  // 主動退出房間
+  socket.on("LEAVE_ROOM", ({ roomId, userId }) => {
+    const state = rooms[roomId];
+    if (!state) return;
+
+    const playerIndex = state.players.findIndex(p => p.id === userId);
+    if (playerIndex === -1) return;
+    const player = state.players[playerIndex];
+
+    if (!state.started) {
+      // 未開局：直接從清單中移除並重新整理座位號
+      state.players.splice(playerIndex, 1);
+      reorderSeats(state);
+      logRoom(state, `${player.name} 離開了房間。`);
+
+      // 若房主離開，移交給下一位在場玩家
+      if (state.hostId === userId) {
+        state.hostId = state.players.length > 0 ? state.players[0].id : null;
+      }
+
+      socket.leave(roomId);
+
+      // 若房間無人，立即銷毀
+      if (state.players.length === 0) {
+        delete rooms[roomId];
+        return;
+      }
+    } else {
+      // 開局中主動退出：標記離線
+      player.online = false;
+      player.lastDisconnectAt = Date.now();
+      logRoom(state, `${player.name}（${player.seat}號）離線。`);
+      socket.leave(roomId);
+    }
+
     broadcastRoomState(roomId);
   });
 
@@ -697,7 +754,6 @@ io.on("connection", (socket) => {
       logRoom(state, "女巫完成行動，輪到預言家。");
       enterNightPhase(state, "NIGHT_SEER");
     } else if (actionType === "SEER_CHECK") {
-      // 🌟 核心修復：精確從後端未遮蔽的真實原始數據判定
       const target = state.players.find(p => !p.isSpectator && p.seat === data.targetSeat);
       const isBad = target && ["狼人", "白狼王"].includes(target.role);
       const resultString = isBad ? "狼人" : "好人";
@@ -705,7 +761,6 @@ io.on("connection", (socket) => {
       state.seerCheckLog = `查驗 ${data.targetSeat}號，身份為【${resultString}】`;
       logRoom(state, "預言家完成驗人。");
 
-      // 🌟 核心修復：直接向預言家的 Socket 發送專屬私密驗人結果事件
       socket.emit("SEER_RESULT", {
         dayCount: state.dayCount,
         targetSeat: data.targetSeat,
@@ -897,20 +952,44 @@ io.on("connection", (socket) => {
       const player = state.players.find(p => p.socketId === socket.id);
       if (player) {
         player.online = false;
+        player.lastDisconnectAt = Date.now();
+        broadcastRoomState(roomId);
         break;
       }
     }
   });
 });
 
+// 定時垃圾回收機制 (每 10 分鐘檢查一次)
 setInterval(() => {
   const now = Date.now();
-  const EXPIRE_TIME = 2 * 60 * 60 * 1000;
+  const EXPIRE_TIME = 2 * 60 * 60 * 1000; // 閒置超過 2 小時銷毀
+  const ALL_OFFLINE_EXPIRE_TIME = 10 * 60 * 1000; // 開局中全員離線超過 10 分鐘銷毀
 
   for (const roomId in rooms) {
     const state = rooms[roomId];
+
+    // 1. 空房立即清理
+    if (state.players.length === 0) {
+      delete rooms[roomId];
+      continue;
+    }
+
+    // 2. 超過 2 小時無操作清理
     if (now - state.lastActiveTime > EXPIRE_TIME) {
       delete rooms[roomId];
+      continue;
+    }
+
+    // 3. 遊戲進行中若全員離線超過 10 分鐘清理
+    if (state.started) {
+      const hasOnlinePlayer = state.players.some(p => p.online);
+      if (!hasOnlinePlayer) {
+        const earliestDisconnect = Math.min(...state.players.map(p => p.lastDisconnectAt || now));
+        if (now - earliestDisconnect > ALL_OFFLINE_EXPIRE_TIME) {
+          delete rooms[roomId];
+        }
+      }
     }
   }
 }, 10 * 60 * 1000);
