@@ -291,6 +291,12 @@
             render();
         });
 
+        // 🌟 核心修復：預言家專屬接收後端未遮蔽的真實驗人結果
+        socket.on("SEER_RESULT", ({ dayCount, targetSeat, result }) => {
+            logPersonal(`第 ${dayCount} 夜：查驗 ${targetSeat}號，身份為【${result}】！`);
+            alert(`查驗結果：${targetSeat} 號是【${result}】（已自動記錄至個人日誌）`);
+        });
+
         socket.on("JOIN_ERROR", (msg) => {
             alert(msg);
             location.reload();
@@ -345,12 +351,8 @@
             dispatchAction("WITCH_ACTION", { save, killSeat });
         }
 
+        // 🌟 核心修復：前端只負責發送 targetSeat，不做本地角色比對
         function seerCheck(targetSeat) {
-            const target = state.players.find(p => !p.isSpectator && p.seat === targetSeat);
-            const isBad = target && ["狼人", "白狼王"].includes(target.role);
-            const result = isBad ? "狼人" : "好人";
-            logPersonal(`第 ${state.dayCount} 夜：查驗 ${targetSeat}號，身份為【${result}】！`);
-            alert(`查驗結果：${targetSeat} 號是【${result}】（已記錄至個人日誌）`);
             dispatchAction("SEER_CHECK", { targetSeat });
         }
 

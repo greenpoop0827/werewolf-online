@@ -515,7 +515,6 @@ io.on("connection", (socket) => {
     const state = rooms[roomId];
     if (!state) return;
 
-    // 房主備用強制推進
     if (actionType === "HOST_FORCE_NEXT") {
       if (userId !== state.hostId) return;
 
@@ -698,11 +697,21 @@ io.on("connection", (socket) => {
       logRoom(state, "女巫完成行動，輪到預言家。");
       enterNightPhase(state, "NIGHT_SEER");
     } else if (actionType === "SEER_CHECK") {
-      // 修正：從原始 state.players 獲取真實未遮蔽身份
+      // 🌟 核心修復：精確從後端未遮蔽的真實原始數據判定
       const target = state.players.find(p => !p.isSpectator && p.seat === data.targetSeat);
       const isBad = target && ["狼人", "白狼王"].includes(target.role);
-      state.seerCheckLog = `查驗 ${data.targetSeat}號，身份為【${isBad ? "狼人" : "好人"}】`;
+      const resultString = isBad ? "狼人" : "好人";
+
+      state.seerCheckLog = `查驗 ${data.targetSeat}號，身份為【${resultString}】`;
       logRoom(state, "預言家完成驗人。");
+
+      // 🌟 核心修復：直接向預言家的 Socket 發送專屬私密驗人結果事件
+      socket.emit("SEER_RESULT", {
+        dayCount: state.dayCount,
+        targetSeat: data.targetSeat,
+        result: resultString
+      });
+
       finishNight(state);
     } else if (actionType === "OPT_SHERIFF") {
       const player = state.players.find(p => p.id === userId);
@@ -790,7 +799,6 @@ io.on("connection", (socket) => {
         }
       }
     } else if (actionType === "SHERIFF_CALL") {
-      // 修正：警長歸票後正常切換到投票階段
       state.sheriffCallTarget = data.targetSeat;
       logRoom(state, `⭐ 警長歸票目標：【${data.targetSeat === 0 ? "不指定 / 隨意" : data.targetSeat + " 號"}】`);
       startDayVote(state);
@@ -884,7 +892,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    // 斷線時僅標記 online: false，保留房間與玩家資訊，防止重新整理誤刪
     for (const roomId in rooms) {
       const state = rooms[roomId];
       const player = state.players.find(p => p.socketId === socket.id);
