@@ -70,7 +70,8 @@
         }
 
         input,
-        select {
+        select,
+        textarea {
             padding: 8px;
             background: #121214;
             border: 1px solid #323238;
@@ -116,6 +117,18 @@
             color: #f87171;
         }
 
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            background: #27272a;
+            border: 1px solid #3f3f46;
+            color: #38bdf8;
+            margin-bottom: 12px;
+        }
+
         .log-box {
             height: 150px;
             overflow-y: auto;
@@ -147,7 +160,6 @@
 
 <body>
 
-    <!-- 加入房間畫面 -->
     <div id="join-view" class="card">
         <h2>加入狼人殺房間 (線上版)</h2>
         <input type="text" id="room-input" placeholder="房間號" value="888">
@@ -159,8 +171,12 @@
         <button onclick="joinRoom()">進入房間</button>
     </div>
 
-    <!-- 遊戲主畫面 -->
     <div id="game-view" class="hidden">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div id="game-timeline-badge" class="status-badge">等待開局</div>
+            <div id="host-badge" style="font-size: 13px; color: #fba94c; font-weight: bold;"></div>
+        </div>
+
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
@@ -178,7 +194,6 @@
                 style="color: #fba94c; font-weight: bold; font-size: 18px; margin: 8px 0 0 0;"></p>
         </div>
 
-        <!-- 上帝視角面板 (觀眾專屬) -->
         <div id="god-panel" class="card god-view hidden">
             <h3 style="color: #38bdf8;">👁️ 觀眾席 - 全知上帝視角</h3>
             <div id="god-player-details" style="margin-bottom: 8px;"></div>
@@ -186,7 +201,6 @@
                 style="font-size: 13px; color: #a1a1aa; border-top: 1px dashed #3f3f46; padding-top: 6px;"></div>
         </div>
 
-        <!-- 房主控制台 -->
         <div id="host-panel" class="card hidden">
             <h3>房主控制台</h3>
             <div id="setup-controls">
@@ -205,24 +219,33 @@
             </div>
         </div>
 
-        <!-- 法官指示與按鈕區 -->
         <div class="card" style="border-left: 4px solid #04d361;">
             <h3 id="phase-title">等待開局</h3>
             <p id="judge-instruction" style="font-size: 16px;">等待所有玩家就緒...</p>
             <div id="action-controls"></div>
         </div>
 
-        <!-- 玩家列表 -->
         <div class="card">
             <h3>場上玩家 (<span id="player-count">0</span>) | 觀眾席 (<span id="spectator-count">0</span>)</h3>
             <div id="player-list"></div>
             <div id="spectator-list" style="margin-top: 8px; font-size: 13px; color: #38bdf8;"></div>
         </div>
 
-        <!-- 日誌區 -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;"
+                onclick="toggleNotes()">
+                <h3>📝 我的個人筆記本 <span id="notes-toggle-icon">▼</span></h3>
+                <span style="font-size:12px; color:#888;">(自動儲存至本機)</span>
+            </div>
+            <div id="notes-container">
+                <textarea id="player-notepad" style="width:100%; height:80px; resize:vertical;"
+                    placeholder="在此記錄場上信息，如：1金水、2查殺、3退水..." oninput="saveNotes()"></textarea>
+            </div>
+        </div>
+
         <div class="card">
             <div id="personal-log-container">
-                <h3>個人專屬行動日誌（僅自己可見）</h3>
+                <h3 id="log-title-text">個人專屬行動日誌（僅自己可見）</h3>
                 <div id="my-log-box" class="log-box personal-log"></div>
             </div>
 
@@ -234,7 +257,6 @@
     <script>
         let socket = io();
         let roomCode = "";
-        // 保持玩家 UID 於本地儲存，重整可無縫復原
         let myId = localStorage.getItem("werewolf_uid") || ("user_" + Math.floor(Math.random() * 1000000));
         localStorage.setItem("werewolf_uid", myId);
         let myName = "";
@@ -262,6 +284,8 @@
             dayDiscussClockwise: true,
             pendingDeathSeats: [],
             pendingDeathQueue: [],
+            firstNightLastWordsQueue: [],
+            currentLastWordSeat: null,
             postDeathHandler: null,
             activeDeathSeat: null,
             hunterDeathReason: {},
@@ -292,6 +316,8 @@
             document.getElementById("game-view").classList.remove("hidden");
             document.getElementById("display-room").innerText = roomCode;
             document.getElementById("display-name").innerText = myName + (isSpectator ? " (觀眾)" : "");
+
+            document.getElementById("player-notepad").value = localStorage.getItem(`werewolf_notes_${roomCode}`) || "";
 
             socket.emit("JOIN_ROOM", { roomId: roomCode, userId: myId, name: myName, isSpectator });
         }
@@ -341,6 +367,23 @@
             box.scrollTop = box.scrollHeight;
         }
 
+        function saveNotes() {
+            const text = document.getElementById("player-notepad").value;
+            localStorage.setItem(`werewolf_notes_${roomCode}`, text);
+        }
+
+        function toggleNotes() {
+            const cont = document.getElementById("notes-container");
+            const icon = document.getElementById("notes-toggle-icon");
+            if (cont.classList.contains("hidden")) {
+                cont.classList.remove("hidden");
+                icon.innerText = "▼";
+            } else {
+                cont.classList.add("hidden");
+                icon.innerText = "▶";
+            }
+        }
+
         function startGame() {
             const preset = document.getElementById("preset-select").value;
             const enableSheriff = document.getElementById("enable-sheriff").checked;
@@ -355,6 +398,14 @@
 
         function hostForceNext() {
             dispatchAction("HOST_FORCE_NEXT");
+        }
+
+        function hostNextSpeaker() {
+            dispatchAction("HOST_NEXT_SPEAKER");
+        }
+
+        function hostFinishLastWords() {
+            dispatchAction("HOST_FINISH_LAST_WORDS");
         }
 
         function guardAction(targetSeat) {
@@ -414,10 +465,6 @@
             dispatchAction("FINISH_SHERIFF_ENROLL");
         }
 
-        function nextSpeaker() {
-            dispatchAction("NEXT_SPEAKER");
-        }
-
         function sheriffCall(targetSeat) {
             logPersonal(`你身為警長，歸票給【${targetSeat === 0 ? "隨意" : targetSeat + "號"}】`);
             dispatchAction("SHERIFF_CALL", { targetSeat });
@@ -431,10 +478,6 @@
         function passSheriff(targetSeat) {
             logPersonal(targetSeat > 0 ? `你將警徽移交給【${targetSeat}號】` : "你選擇了撕毀警徽！");
             dispatchAction("SHERIFF_PASS", { targetSeat });
-        }
-
-        function finishLastWords() {
-            dispatchAction("FINISH_LAST_WORDS");
         }
 
         function chooseOrder(startSeat, clockwise) {
@@ -463,6 +506,34 @@
             }
         }
 
+        function getPhaseDisplayName(phase, dayCount) {
+            if (phase === "LOBBY") return "等待開局";
+            const isNight = phase.startsWith("NIGHT_");
+            const prefix = `第 ${dayCount} 天・${isNight ? '🌙夜晚' : '☀️白天'}`;
+
+            const map = {
+                "NIGHT_GUARD": "守衛守護",
+                "NIGHT_WOLF": "狼人襲擊",
+                "NIGHT_WITCH": "女巫用藥",
+                "NIGHT_SEER": "預言家驗人",
+                "DAY_SHERIFF_RUN": "警長競選報名",
+                "DAY_SHERIFF_SPEAK": "警長競選發言",
+                "DAY_SHERIFF_VOTE": "警長投票",
+                "DAY_NIGHT_LAST_WORDS": "首夜出局遺言",
+                "DAY_ORDER_CHOOSE": "警長決定發言順序",
+                "DAY_DISCUSS": "白天自由發言",
+                "DAY_SHERIFF_CALL": "警長歸票",
+                "DAY_VOTE": "白天放逐公投",
+                "DAY_PK_SPEAK": "公投 PK 發言",
+                "DAY_PK_VOTE": "公投 PK 投票",
+                "DAY_LAST_WORDS": "出局發表遺言",
+                "DEATH_SKILL_CHECK": "出局技能/操作確認",
+                "SHERIFF_TRANSFER": "警徽移交/撕毀"
+            };
+
+            return `${prefix}【${map[phase] || phase}】`;
+        }
+
         function renderHostButton(ctrls, isHost) {
             if (isHost && state.started && !state.gameOver) {
                 ctrls.innerHTML += `
@@ -480,6 +551,9 @@
             const isHost = state.hostId === myId;
             const isWolfTeam = ["狼人", "白狼王"].includes(me.role);
 
+            document.getElementById("game-timeline-badge").innerText = getPhaseDisplayName(state.phase, state.dayCount);
+            document.getElementById("host-badge").innerText = isHost ? "👑 你是房主" : "";
+
             document.getElementById("host-panel").classList.toggle("hidden", !isHost);
             document.getElementById("setup-controls").classList.toggle("hidden", state.started);
             document.getElementById("restart-controls").classList.toggle("hidden", !state.started);
@@ -493,7 +567,6 @@
             document.getElementById("player-count").innerText = gamePlayers.length;
             document.getElementById("spectator-count").innerText = spectators.length;
 
-            // 渲染場上玩家列表（支援狼人互認與離線標籤）
             document.getElementById("player-list").innerHTML = gamePlayers.map(p => {
                 const isMyWolfmate = isWolfTeam && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id;
                 const offlineTag = !p.online ? `<span style="font-size:11px; color:#a1a1aa;">(離線)</span>` : "";
@@ -508,7 +581,8 @@
                 ? `觀眾名單：` + spectators.map(s => `<span class="player-badge badge-spectator ${!s.online ? 'offline' : ''}">${s.name}${!s.online ? '(離線)' : ''}</span>`).join(" ")
                 : "";
 
-            // 上帝視角面板
+            document.getElementById("log-title-text").innerText = isSpectator ? "👁️ 旁觀者即時進程日誌" : "個人專屬行動日誌（僅自己可見）";
+
             const godPanel = document.getElementById("god-panel");
             if (isSpectator && state.started) {
                 godPanel.classList.remove("hidden");
@@ -554,10 +628,17 @@
             }
 
             if (isSpectator) {
-                title.innerText = "👀 上帝視角觀戰中";
-                inst.innerText = `當前階段：【${state.phase}】。你可以觀看所有人的底牌、暗盤行動與公屏日誌。`;
-                renderHostButton(ctrls, isHost);
-                return;
+                let specLog = `【進度廣播】：目前為 ${getPhaseDisplayName(state.phase, state.dayCount)}。\n`;
+                if (state.phase === "DAY_SHERIFF_RUN") specLog += "正在進行警長競選報名舉手。\n";
+                else if (["DAY_SHERIFF_SPEAK", "DAY_DISCUSS", "DAY_PK_SPEAK"].includes(state.phase)) {
+                    specLog += `當前正在發言玩家：【${state.speakingQueue[state.speakerIdx]}號】。\n`;
+                } else if (state.phase === "DEATH_SKILL_CHECK") {
+                    specLog += `正在等待【${state.activeDeathSeat}號】確認出局操作/翻槍技能。\n`;
+                } else if (state.phase === "DAY_NIGHT_LAST_WORDS") {
+                    specLog += `正在等待首夜出局者【${state.currentLastWordSeat}號】發表遺言。\n`;
+                }
+                myPersonalLogs = [specLog];
+                renderPersonalLogs();
             }
 
             if (state.phase === "DEATH_SKILL_CHECK") {
@@ -601,7 +682,27 @@
                 return;
             }
 
-            if (!me.alive && state.started && state.phase !== "DAY_LAST_WORDS") {
+            if (state.phase === "DAY_NIGHT_LAST_WORDS") {
+                title.innerText = "💀 首夜出局者發表遺言";
+                inst.innerText = `請 ${state.currentLastWordSeat} 號玩家發表遺言。`;
+                if (isHost) {
+                    ctrls.innerHTML += `<button class="action" onclick="hostFinishLastWords()">👑 房主結束該玩家遺言</button>`;
+                }
+                renderHostButton(ctrls, isHost);
+                return;
+            }
+
+            if (state.phase === "DAY_LAST_WORDS") {
+                title.innerText = "💀 放逐出局者發表遺言";
+                inst.innerText = `請 ${state.exiledPlayer.seat} 號玩家發表出局遺言。`;
+                if (isHost) {
+                    ctrls.innerHTML += `<button class="action" onclick="hostFinishLastWords()">👑 房主結束放逐遺言</button>`;
+                }
+                renderHostButton(ctrls, isHost);
+                return;
+            }
+
+            if (!me.alive && state.started && !isSpectator) {
                 title.innerText = "💀 你已出局";
                 inst.innerText = "出局玩家請保持安靜觀戰。";
                 renderHostButton(ctrls, isHost);
@@ -688,10 +789,14 @@
                 case "DAY_SHERIFF_RUN":
                     title.innerText = "☀️ 白天 - 警長競選報名";
                     inst.innerText = "請選擇是否上警：";
-                    const isEnrolled = state.sheriffCandidates.includes(me.seat);
-                    ctrls.innerHTML += `<button class="${isEnrolled ? 'selected' : 'action'}" onclick="optSheriff(true)">${isEnrolled ? '✓ 已上警' : '我要上警'}</button>`;
-                    ctrls.innerHTML += `<button class="${!isEnrolled ? 'selected' : ''}" onclick="optSheriff(false)">不上警</button>`;
-                    if (isHost) ctrls.innerHTML += `<hr><button onclick="finishSheriffEnroll()">報名完畢，開始競選發言</button>`;
+                    if (!me.isSpectator) {
+                        const isEnrolled = state.sheriffCandidates.includes(me.seat);
+                        ctrls.innerHTML += `<button class="${isEnrolled ? 'selected' : 'action'}" onclick="optSheriff(true)">${isEnrolled ? '✓ 已上警' : '我要上警'}</button>`;
+                        ctrls.innerHTML += `<button class="${!isEnrolled ? 'selected' : ''}" onclick="optSheriff(false)">不上警</button>`;
+                    }
+                    if (isHost) {
+                        ctrls.innerHTML += `<hr><button class="warn" onclick="finishSheriffEnroll()">👑 房主確認上警報名完畢，開始發言</button>`;
+                    }
                     break;
 
                 case "DAY_SHERIFF_SPEAK": {
@@ -701,8 +806,8 @@
                         : (state.sheriffRound === 2 ? "☀️ 警長首次平票 PK (反向發言)" : "☀️ 警長大眾發言輪");
                     inst.innerText = `當前發言玩家：【${speaker}號】`;
 
-                    if (me.seat === speaker) {
-                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的發言</button>`;
+                    if (isHost) {
+                        ctrls.innerHTML += `<button class="action" onclick="hostNextSpeaker()">👑 房主結束當前發言 (切換下一位)</button>`;
                     } else {
                         ctrls.innerHTML += `<span style="color:#888;">請聆聽 ${speaker} 號發言...</span><br/>`;
                     }
@@ -745,13 +850,14 @@
                     title.innerText = "☀️ 白天自由發言";
                     inst.innerText = `當前發言玩家：【${speaker}號】`;
 
-                    if (me.seat === speaker) {
-                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的發言</button>`;
-                        if (isWolfTeam) {
-                            ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">💥 狼人自爆！</button>`;
-                        }
+                    if (isHost) {
+                        ctrls.innerHTML += `<button class="action" onclick="hostNextSpeaker()">👑 房主結束當前發言 (切換下一位)</button>`;
                     } else {
                         ctrls.innerHTML += `<span style="color:#888;">請聆聽 ${speaker} 號發言...</span>`;
+                    }
+
+                    if (me.seat === speaker && isWolfTeam) {
+                        ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">💥 狼人自爆！</button>`;
                     }
                     break;
                 }
@@ -760,13 +866,15 @@
                     const speaker = state.speakingQueue[state.speakerIdx];
                     title.innerText = "⚖️ 白天公投 PK 反向發言";
                     inst.innerText = `PK 發言玩家：【${speaker}號】（平票名單：${state.dayPkCandidates.join(", ")}號）`;
-                    if (me.seat === speaker) {
-                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的 PK 發言</button>`;
-                        if (isWolfTeam) {
-                            ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">💥 狼人自爆！</button>`;
-                        }
+
+                    if (isHost) {
+                        ctrls.innerHTML += `<button class="action" onclick="hostNextSpeaker()">👑 房主結束當前 PK 發言</button>`;
                     } else {
                         ctrls.innerHTML += `<span style="color:#888;">請聆聽 PK 候選人 ${speaker} 號發言...</span>`;
+                    }
+
+                    if (me.seat === speaker && isWolfTeam) {
+                        ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">💥 狼人自爆！</button>`;
                     }
                     break;
                 }
@@ -842,14 +950,6 @@
                     }
                     break;
                 }
-
-                case "DAY_LAST_WORDS":
-                    title.innerText = "💀 發表遺言";
-                    inst.innerText = `請 ${state.exiledPlayer.seat}號 發表出局遺言。`;
-                    if (me.seat === state.exiledPlayer.seat) {
-                        ctrls.innerHTML += `<button class="action" onclick="finishLastWords()">結束遺言</button>`;
-                    }
-                    break;
             }
 
             renderHostButton(ctrls, isHost);

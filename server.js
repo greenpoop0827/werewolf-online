@@ -39,11 +39,13 @@ function getDefaultRoomState(roomId) {
 
     pendingDeathSeats: [],
     pendingDeathQueue: [],
+    firstNightLastWordsQueue: [],
+    currentLastWordSeat: null,
     postDeathHandler: null,
     activeDeathSeat: null,
     hunterDeathReason: {},
 
-    players: [], // { id, socketId, name, seat, role, alive, isSheriff, idiotRevealed, isSpectator, online, lastDisconnectAt }
+    players: [],
     wolfTargets: {},
 
     guardTarget: null,
@@ -65,7 +67,6 @@ function getDefaultRoomState(roomId) {
   };
 }
 
-// 防作弊資料遮蔽 (Sanitization)
 function getSanitizedState(state, targetPlayer) {
   const isSpectator = targetPlayer && targetPlayer.isSpectator;
   const role = targetPlayer ? targetPlayer.role : null;
@@ -126,7 +127,6 @@ function logRoom(state, msg) {
   state.logs.push(msg);
 }
 
-// 重新整理並緊湊排序座位號 (僅在未開局時執行)
 function reorderSeats(state) {
   if (state.started) return;
   let seatNum = 1;
@@ -282,17 +282,40 @@ function announceDeathAndStartDay(state) {
     if (p) p.alive = false;
   });
 
+  // 🌟 即使是平安夜也會正確公佈
   logRoom(state, `=== 第 ${state.dayCount} 天死訊公佈：昨晚出局：${state.pendingDeathSeats.length > 0 ? state.pendingDeathSeats.join(", ") + " 號" : "平安夜"} ===`);
 
   if (checkGameOver(state)) return;
 
   state.postDeathHandler = "START_DAY_PROCESS";
-  state.pendingDeathQueue = [...state.pendingDeathSeats];
 
-  if (state.pendingDeathQueue.length > 0) {
-    processNextDeathQueue(state);
+  if (state.dayCount === 1 && state.pendingDeathSeats.length > 0) {
+    state.firstNightLastWordsQueue = [...state.pendingDeathSeats];
+    processFirstNightLastWords(state);
   } else {
-    processPostDeathStep(state);
+    state.pendingDeathQueue = [...state.pendingDeathSeats];
+    if (state.pendingDeathQueue.length > 0) {
+      processNextDeathQueue(state);
+    } else {
+      processPostDeathStep(state);
+    }
+  }
+}
+
+function processFirstNightLastWords(state) {
+  if (state.firstNightLastWordsQueue.length > 0) {
+    const nextSeat = state.firstNightLastWordsQueue.shift();
+    state.currentLastWordSeat = nextSeat;
+    state.phase = "DAY_NIGHT_LAST_WORDS";
+    logRoom(state, `請首夜出局玩家 ${nextSeat} 號發表遺言。`);
+  } else {
+    state.currentLastWordSeat = null;
+    state.pendingDeathQueue = [...state.pendingDeathSeats];
+    if (state.pendingDeathQueue.length > 0) {
+      processNextDeathQueue(state);
+    } else {
+      processPostDeathStep(state);
+    }
   }
 }
 
@@ -327,7 +350,8 @@ function electSheriff(state, seat, reason) {
   state.sheriff = seat;
   logRoom(state, `🎉 ${seat} 號當選警長！(${reason})`);
 
-  if (state.dayCount === 1 && state.pendingDeathSeats.length > 0 && state.players.filter(pl => !pl.isSpectator && !pl.alive).length === 0) {
+  // 🌟 核心修復：首日選完警長後，無論平安夜或死人，一律正式宣讀死訊
+  if (state.dayCount === 1 && state.players.filter(pl => !pl.isSpectator && !pl.alive).length === 0) {
     announceDeathAndStartDay(state);
   } else {
     startDayProcess(state);
@@ -486,7 +510,6 @@ function tallyVotes(state) {
 }
 
 io.on("connection", (socket) => {
-  // 加入房間 / 斷線重連
   socket.on("JOIN_ROOM", ({ roomId, userId, name, isSpectator }) => {
     if (!rooms[roomId]) {
       rooms[roomId] = getDefaultRoomState(roomId);
@@ -518,7 +541,6 @@ io.on("connection", (socket) => {
         return;
       }
     } else {
-      // 玩家斷線重連，更新 Socket ID 與在線狀態
       player.socketId = socket.id;
       player.online = true;
       player.lastDisconnectAt = null;
@@ -530,7 +552,6 @@ io.on("connection", (socket) => {
     broadcastRoomState(roomId);
   });
 
-  // 主動退出房間
   socket.on("LEAVE_ROOM", ({ roomId, userId }) => {
     const state = rooms[roomId];
     if (!state) return;
@@ -540,25 +561,21 @@ io.on("connection", (socket) => {
     const player = state.players[playerIndex];
 
     if (!state.started) {
-      // 未開局：直接從清單中移除並重新整理座位號
       state.players.splice(playerIndex, 1);
       reorderSeats(state);
       logRoom(state, `${player.name} 離開了房間。`);
 
-      // 若房主離開，移交給下一位在場玩家
       if (state.hostId === userId) {
         state.hostId = state.players.length > 0 ? state.players[0].id : null;
       }
 
       socket.leave(roomId);
 
-      // 若房間無人，立即銷毀
       if (state.players.length === 0) {
         delete rooms[roomId];
         return;
       }
     } else {
-      // 開局中主動退出：標記離線
       player.online = false;
       player.lastDisconnectAt = Date.now();
       logRoom(state, `${player.name}（${player.seat}號）離線。`);
@@ -611,6 +628,9 @@ io.on("connection", (socket) => {
             }
           }
           break;
+        case "DAY_NIGHT_LAST_WORDS":
+          processFirstNightLastWords(state);
+          break;
         case "DAY_ORDER_CHOOSE":
           setupDiscussQueue(state, state.players.find(p => !p.isSpectator && p.alive).seat, true);
           break;
@@ -660,6 +680,8 @@ io.on("connection", (socket) => {
       state.dayDiscussClockwise = true;
       state.pendingDeathSeats = [];
       state.pendingDeathQueue = [];
+      state.firstNightLastWordsQueue = [];
+      state.currentLastWordSeat = null;
       state.postDeathHandler = null;
       state.activeDeathSeat = null;
       state.hunterDeathReason = {};
@@ -776,6 +798,8 @@ io.on("connection", (socket) => {
         state.sheriffCandidates = state.sheriffCandidates.filter(s => s !== player.seat);
       }
     } else if (actionType === "FINISH_SHERIFF_ENROLL") {
+      if (userId !== state.hostId) return;
+
       if (state.sheriffCandidates.length === 0) {
         logRoom(state, "無人競選警長，本局無警長。");
         announceDeathAndStartDay(state);
@@ -830,7 +854,9 @@ io.on("connection", (socket) => {
           startNight(state);
         }
       }
-    } else if (actionType === "NEXT_SPEAKER") {
+    } else if (actionType === "HOST_NEXT_SPEAKER") {
+      if (userId !== state.hostId) return;
+
       state.speakerIdx++;
       if (state.speakerIdx >= state.speakingQueue.length) {
         if (state.phase === "DAY_SHERIFF_SPEAK") {
@@ -852,6 +878,18 @@ io.on("connection", (socket) => {
           state.votes = {};
           logRoom(state, "公投 PK 反向發言結束，其餘存活玩家開始投票。");
         }
+      }
+    } else if (actionType === "HOST_FINISH_LAST_WORDS") {
+      if (userId !== state.hostId) return;
+
+      if (state.phase === "DAY_NIGHT_LAST_WORDS") {
+        processFirstNightLastWords(state);
+      } else if (state.phase === "DAY_LAST_WORDS") {
+        logRoom(state, "放逐遺言結束。");
+        state.hunterDeathReason[state.exiledPlayer.seat] = "vote";
+        state.pendingDeathQueue = [state.exiledPlayer.seat];
+        state.postDeathHandler = "START_NIGHT";
+        processNextDeathQueue(state);
       }
     } else if (actionType === "SHERIFF_CALL") {
       state.sheriffCallTarget = data.targetSeat;
@@ -931,12 +969,6 @@ io.on("connection", (socket) => {
       }
 
       processPostDeathStep(state);
-    } else if (actionType === "FINISH_LAST_WORDS") {
-      logRoom(state, "遺言結束。");
-      state.hunterDeathReason[state.exiledPlayer.seat] = "vote";
-      state.pendingDeathQueue = [state.exiledPlayer.seat];
-      state.postDeathHandler = "START_NIGHT";
-      processNextDeathQueue(state);
     } else if (actionType === "CHOOSE_ORDER") {
       const { startSeat, clockwise } = data;
       state.dayDiscussClockwise = clockwise;
@@ -960,28 +992,17 @@ io.on("connection", (socket) => {
   });
 });
 
-// 定時垃圾回收機制 (每 10 分鐘檢查一次)
 setInterval(() => {
   const now = Date.now();
-  const EXPIRE_TIME = 2 * 60 * 60 * 1000; // 閒置超過 2 小時銷毀
-  const ALL_OFFLINE_EXPIRE_TIME = 10 * 60 * 1000; // 開局中全員離線超過 10 分鐘銷毀
+  const EXPIRE_TIME = 2 * 60 * 60 * 1000;
+  const ALL_OFFLINE_EXPIRE_TIME = 10 * 60 * 1000;
 
   for (const roomId in rooms) {
     const state = rooms[roomId];
-
-    // 1. 空房立即清理
-    if (state.players.length === 0) {
+    if (state.players.length === 0 || now - state.lastActiveTime > EXPIRE_TIME) {
       delete rooms[roomId];
       continue;
     }
-
-    // 2. 超過 2 小時無操作清理
-    if (now - state.lastActiveTime > EXPIRE_TIME) {
-      delete rooms[roomId];
-      continue;
-    }
-
-    // 3. 遊戲進行中若全員離線超過 10 分鐘清理
     if (state.started) {
       const hasOnlinePlayer = state.players.some(p => p.online);
       if (!hasOnlinePlayer) {
