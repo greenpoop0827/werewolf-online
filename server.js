@@ -13,20 +13,22 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const rooms = {};
 
-function getDefaultRoomState(roomId) {
+function getDefaultRoomState(roomId, hostId) {
   return {
     roomId,
-    hostId: null,
+    hostId: hostId || null,
     started: false,
     gameOver: false,
     winner: null,
-    preset: "standard12_idiot",
+    winRule: "side",
+    witchSelfSaveFirstNight: true,
     dayCount: 0,
     phase: "LOBBY",
     enableSheriff: true,
     sheriff: null,
 
     sheriffRound: 1,
+    sheriffDecisions: {},
     sheriffCandidates: [],
     sheriffWithdrawn: [],
     sheriffTieCandidates: [],
@@ -47,6 +49,8 @@ function getDefaultRoomState(roomId) {
 
     players: [],
     wolfTargets: {},
+    wolfChatHistory: [],
+    spectatorLogs: [],
 
     guardTarget: null,
     lastGuardTarget: null,
@@ -60,6 +64,7 @@ function getDefaultRoomState(roomId) {
     lastKilled: null,
     speakingQueue: [],
     speakerIdx: 0,
+    speakerStartTime: null,
     votes: {},
     exiledPlayer: null,
     logs: [],
@@ -90,6 +95,7 @@ function getSanitizedState(state, targetPlayer) {
   if (!state.gameOver) {
     if (!isWolfTeam) {
       safeState.wolfTargets = {};
+      safeState.wolfChatHistory = [];
     }
     if (role !== "女巫") {
       safeState.witchSaveThisNight = false;
@@ -107,6 +113,7 @@ function getSanitizedState(state, targetPlayer) {
         safeState.lastKilled = null;
       }
     }
+    safeState.spectatorLogs = [];
   }
 
   return safeState;
@@ -123,8 +130,17 @@ function broadcastRoomState(roomId) {
   });
 }
 
+function emitTTS(roomId, text) {
+  io.to(roomId).emit("TTS_ANNOUNCE", text);
+}
+
 function logRoom(state, msg) {
   state.logs.push(msg);
+  logSpectator(state, msg);
+}
+
+function logSpectator(state, msg) {
+  state.spectatorLogs.push(`[第 ${state.dayCount} 天] ${msg}`);
 }
 
 function reorderSeats(state) {
@@ -148,73 +164,121 @@ function checkGameOver(state) {
   if (aliveWolves.length === 0) {
     state.gameOver = true;
     state.winner = "好人陣營";
-    logRoom(state, "🎉 所有狼人均已出局，【好人陣營獲勝】！遊戲結束。");
+    logRoom(state, "所有狼人均已出局，【好人陣營獲勝】！遊戲結束。");
+    emitTTS(state.roomId, "遊戲結束，好人陣營獲勝！");
     return true;
   }
 
-  if (state.preset === "standard6") {
+  if (state.winRule === "all") {
     if (aliveGods.length === 0 && aliveVillagers.length === 0) {
       state.gameOver = true;
       state.winner = "狼人陣營";
-      logRoom(state, "🐺 好人陣營全數出局（屠城），【狼人陣營獲勝】！遊戲結束。");
+      logRoom(state, "好人陣營全數出局（屠城成功），【狼人陣營獲勝】！遊戲結束。");
+      emitTTS(state.roomId, "遊戲結束，狼人陣營獲勝！");
       return true;
     }
   } else {
     if (aliveGods.length === 0) {
       state.gameOver = true;
       state.winner = "狼人陣營";
-      logRoom(state, "🐺 神職陣營全數出局（屠邊成功），【狼人陣營獲勝】！遊戲結束。");
+      logRoom(state, "神職陣營全數出局（屠神成功），【狼人陣營獲勝】！遊戲結束。");
+      emitTTS(state.roomId, "遊戲結束，狼人陣營獲勝！");
       return true;
     }
     if (aliveVillagers.length === 0) {
       state.gameOver = true;
       state.winner = "狼人陣營";
-      logRoom(state, "🐺 平民陣營全數出局（屠邊成功），【狼人陣營獲勝】！遊戲結束。");
+      logRoom(state, "平民陣營全數出局（屠民成功），【狼人陣營獲勝】！遊戲結束。");
+      emitTTS(state.roomId, "遊戲結束，狼人陣營獲勝！");
       return true;
     }
   }
   return false;
 }
 
+function advanceNightStep(state, currentPhase) {
+  const hasRole = (roleName) => state.players.some(p => !p.isSpectator && p.role === roleName);
+
+  if (currentPhase === "START") {
+    if (hasRole("守衛")) {
+      enterNightPhase(state, "NIGHT_GUARD");
+    } else {
+      advanceNightStep(state, "NIGHT_GUARD");
+    }
+    return;
+  }
+
+  if (currentPhase === "NIGHT_GUARD") {
+    enterNightPhase(state, "NIGHT_WOLF");
+    return;
+  }
+
+  if (currentPhase === "NIGHT_WOLF") {
+    if (hasRole("女巫")) {
+      enterNightPhase(state, "NIGHT_WITCH");
+    } else {
+      advanceNightStep(state, "NIGHT_WITCH");
+    }
+    return;
+  }
+
+  if (currentPhase === "NIGHT_WITCH") {
+    if (hasRole("預言家")) {
+      enterNightPhase(state, "NIGHT_SEER");
+    } else {
+      advanceNightStep(state, "NIGHT_SEER");
+    }
+    return;
+  }
+
+  if (currentPhase === "NIGHT_SEER") {
+    finishNight(state);
+  }
+}
+
 function enterNightPhase(state, phaseName) {
   state.phase = phaseName;
+  state.speakerStartTime = null;
 
   if (phaseName === "NIGHT_GUARD") {
-    const guard = state.players.find(p => !p.isSpectator && p.role === "守衛" && p.alive);
-    if (!guard) {
+    emitTTS(state.roomId, "守衛請睜眼。");
+    const guardAlive = state.players.some(p => !p.isSpectator && p.role === "守衛" && p.alive);
+    if (!guardAlive) {
       setTimeout(() => {
-        logRoom(state, "守衛行動結束。");
-        enterNightPhase(state, "NIGHT_WOLF");
+        logSpectator(state, "守衛已死亡，自動跳過行動。");
+        advanceNightStep(state, "NIGHT_GUARD");
         broadcastRoomState(state.roomId);
-      }, 2000);
+      }, 1500);
     }
   } else if (phaseName === "NIGHT_WOLF") {
-    state.wolfTargets = {};
-    const aliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && p.alive);
+    emitTTS(state.roomId, "狼人請睜眼。");
+    const aliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && (p.alive || p.explodedThisDay));
     if (aliveWolves.length === 0) {
       setTimeout(() => {
-        logRoom(state, "狼人行動結束。");
-        enterNightPhase(state, "NIGHT_WITCH");
+        logSpectator(state, "狼人全滅，自動跳過行動。");
+        advanceNightStep(state, "NIGHT_WOLF");
         broadcastRoomState(state.roomId);
-      }, 2000);
+      }, 1500);
     }
   } else if (phaseName === "NIGHT_WITCH") {
-    const witch = state.players.find(p => !p.isSpectator && p.role === "女巫" && p.alive);
-    if (!witch) {
+    emitTTS(state.roomId, "女巫請睜眼。");
+    const witchAlive = state.players.some(p => !p.isSpectator && p.role === "女巫" && p.alive);
+    if (!witchAlive) {
       setTimeout(() => {
-        logRoom(state, "女巫行動結束。");
-        enterNightPhase(state, "NIGHT_SEER");
+        logSpectator(state, "女巫已死亡，自動跳過行動。");
+        advanceNightStep(state, "NIGHT_WITCH");
         broadcastRoomState(state.roomId);
-      }, 2000);
+      }, 1500);
     }
   } else if (phaseName === "NIGHT_SEER") {
-    const seer = state.players.find(p => !p.isSpectator && p.role === "預言家" && p.alive);
-    if (!seer) {
+    emitTTS(state.roomId, "預言家請睜眼。");
+    const seerAlive = state.players.some(p => !p.isSpectator && p.role === "預言家" && p.alive);
+    if (!seerAlive) {
       setTimeout(() => {
-        logRoom(state, "預言家行動結束。");
+        logSpectator(state, "預言家已死亡，自動跳過行動。");
         finishNight(state);
         broadcastRoomState(state.roomId);
-      }, 2000);
+      }, 1500);
     }
   }
 }
@@ -230,17 +294,22 @@ function startNight(state) {
   state.sheriffCallTarget = null;
   state.dayPkRound = 1;
   state.dayPkCandidates = [];
+  state.sheriffDecisions = {};
 
-  if (state.preset === "standard12_wolfking") {
-    enterNightPhase(state, "NIGHT_GUARD");
-  } else {
-    enterNightPhase(state, "NIGHT_WOLF");
-  }
+  logRoom(state, "天黑請閉眼。");
+  emitTTS(state.roomId, "天黑請閉眼。");
+  logSpectator(state, `=== 第 ${state.dayCount} 夜開始 ===`);
+
+  advanceNightStep(state, "START");
 }
 
 function finishNight(state) {
   let deadSeats = [];
   state.hunterDeathReason = {};
+
+  state.players.forEach(p => {
+    if (p.explodedThisDay) p.explodedThisDay = false;
+  });
 
   const wolfTarget = state.lastKilled;
   const isGuarded = state.guardTarget && state.guardTarget === wolfTarget;
@@ -264,13 +333,16 @@ function finishNight(state) {
     state.hunterDeathReason[state.witchPoisonThisNight] = "witch";
   }
 
+  deadSeats.sort((a, b) => a - b);
   state.pendingDeathSeats = deadSeats;
 
   if (state.enableSheriff && !state.sheriff && state.dayCount === 1) {
     state.phase = "DAY_SHERIFF_RUN";
     state.sheriffCandidates = [];
     state.sheriffWithdrawn = [];
+    state.sheriffDecisions = {};
     logRoom(state, `=== 第 ${state.dayCount} 天天亮。先進行警長競選（死訊尚未公佈） ===`);
+    emitTTS(state.roomId, "天亮了，現在開始警長競選，請選擇是否上警。");
   } else {
     announceDeathAndStartDay(state);
   }
@@ -282,8 +354,19 @@ function announceDeathAndStartDay(state) {
     if (p) p.alive = false;
   });
 
-  // 🌟 即使是平安夜也會正確公佈
-  logRoom(state, `=== 第 ${state.dayCount} 天死訊公佈：昨晚出局：${state.pendingDeathSeats.length > 0 ? state.pendingDeathSeats.join(", ") + " 號" : "平安夜"} ===`);
+  state.pendingDeathSeats.sort((a, b) => a - b);
+  const deathNotice = state.pendingDeathSeats.length > 0
+    ? `${state.pendingDeathSeats.join(", ")} 號（死亡不分先後順序）`
+    : "平安夜";
+
+  logRoom(state, `=== 第 ${state.dayCount} 天死訊公佈：昨晚出局：${deathNotice} ===`);
+
+  // 天亮死訊播報
+  if (state.pendingDeathSeats.length > 0) {
+    emitTTS(state.roomId, `天亮了，昨晚出局的是 ${state.pendingDeathSeats.join(" 號、")} 號玩家。`);
+  } else {
+    emitTTS(state.roomId, "天亮了，昨晚是平安夜。");
+  }
 
   if (checkGameOver(state)) return;
 
@@ -308,6 +391,7 @@ function processFirstNightLastWords(state) {
     state.currentLastWordSeat = nextSeat;
     state.phase = "DAY_NIGHT_LAST_WORDS";
     logRoom(state, `請首夜出局玩家 ${nextSeat} 號發表遺言。`);
+    emitTTS(state.roomId, `請 ${nextSeat} 號玩家發表遺言。`);
   } else {
     state.currentLastWordSeat = null;
     state.pendingDeathQueue = [...state.pendingDeathSeats];
@@ -324,6 +408,7 @@ function processNextDeathQueue(state) {
     const nextDead = state.pendingDeathQueue.shift();
     state.activeDeathSeat = nextDead;
     state.phase = "DEATH_SKILL_CHECK";
+    emitTTS(state.roomId, `請 ${nextDead} 號玩家確認出局操作。`);
   } else {
     processPostDeathStep(state);
   }
@@ -334,6 +419,7 @@ function processPostDeathStep(state) {
   if (deadSheriff) {
     state.phase = "SHERIFF_TRANSFER";
     logRoom(state, `警長 ${deadSheriff.seat} 號出局，請移交或撕毀警徽。`);
+    emitTTS(state.roomId, "警長出局，請移交或撕毀警徽。");
     return;
   }
 
@@ -348,9 +434,9 @@ function electSheriff(state, seat, reason) {
   const p = state.players.find(pl => !pl.isSpectator && pl.seat === seat);
   p.isSheriff = true;
   state.sheriff = seat;
-  logRoom(state, `🎉 ${seat} 號當選警長！(${reason})`);
+  logRoom(state, `${seat} 號當選警長！（${reason}）`);
+  emitTTS(state.roomId, `${seat} 號玩家當選警長。`);
 
-  // 🌟 核心修復：首日選完警長後，無論平安夜或死人，一律正式宣讀死訊
   if (state.dayCount === 1 && state.players.filter(pl => !pl.isSpectator && !pl.alive).length === 0) {
     announceDeathAndStartDay(state);
   } else {
@@ -364,6 +450,7 @@ function startDayProcess(state) {
   if (aliveSheriff) {
     state.phase = "DAY_ORDER_CHOOSE";
     logRoom(state, `請警長 ${aliveSheriff.seat} 號決定發言順序。`);
+    emitTTS(state.roomId, "請警長決定發言順序。");
   } else {
     const alivePlayers = state.players.filter(p => !p.isSpectator && p.alive);
     const randStart = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].seat;
@@ -386,14 +473,18 @@ function setupDiscussQueue(state, startSeat, clockwise) {
 
   state.speakingQueue = queue;
   state.speakerIdx = 0;
+  state.speakerStartTime = Date.now();
   state.phase = "DAY_DISCUSS";
-  logRoom(state, `發言順序已確立：從 ${startSeat} 號開始（${clockwise ? "順時針" : "逆時針"}）：${queue.join(" ➔ ")} 號。`);
+  logRoom(state, `發言順序已確立：從 ${startSeat} 號開始（${clockwise ? "順時針" : "逆時針"}）：${queue.join(" -> ")} 號。`);
+  emitTTS(state.roomId, `請 ${queue[0]} 號玩家開始發言。`);
 }
 
 function startDayVote(state) {
   state.phase = "DAY_VOTE";
+  state.speakerStartTime = null;
   state.votes = {};
   logRoom(state, "進入白天放逐公投，請存活且未翻牌玩家投票。");
+  emitTTS(state.roomId, "請大家開始投票。");
 }
 
 function tallyVotes(state) {
@@ -408,9 +499,9 @@ function tallyVotes(state) {
 
     if (targetSeat !== 0) {
       count[targetSeat] = (count[targetSeat] || 0) + weight;
-      voteDetails.push(`${voterSeat}號${voter && voter.isSheriff ? '(警長)' : ''} ➔ ${targetSeat}號 (${weight}票)`);
+      voteDetails.push(`${voterSeat}號${voter && voter.isSheriff ? '(警長)' : ''} -> ${targetSeat}號 (${weight}票)`);
     } else {
-      voteDetails.push(`${voterSeat}號 ➔ 棄票`);
+      voteDetails.push(`${voterSeat}號 -> 棄票`);
     }
   }
 
@@ -443,7 +534,9 @@ function tallyVotes(state) {
         state.speakingQueue = reversedTieQueue;
         state.sheriffLastSpeakQueue = [...reversedTieQueue];
         state.speakerIdx = 0;
-        logRoom(state, `警長首次平票（${tieSeats.join(", ")} 號）！平票者依反方向再次發言：${reversedTieQueue.join(" ➔ ")} 號。其餘未平票上警者淘汰獲得投票權。`);
+        state.speakerStartTime = Date.now();
+        logRoom(state, `警長競選平票（${tieSeats.join(", ")} 號）！現在進入 PK 階段，依反方向再次發言：${reversedTieQueue.join(" -> ")} 號。`);
+        emitTTS(state.roomId, `警長競選 ${tieSeats.join(" 號、")} 號平票，現在進入 PK 階段。請 ${reversedTieQueue[0]} 號玩家發言。`);
       } else if (state.sheriffRound === 2 && isTie) {
         state.sheriffRound = 3;
         state.sheriffTieCandidates = tieSeats;
@@ -452,9 +545,12 @@ function tallyVotes(state) {
         const otherSpeakers = state.players.filter(p => !p.isSpectator && p.alive && !tieSeats.includes(p.seat)).map(p => p.seat);
         state.speakingQueue = otherSpeakers;
         state.speakerIdx = 0;
-        logRoom(state, `警長再次平票（${tieSeats.join(", ")} 號）！進入大眾發言輪，由警下、退水及淘汰玩家依次發言並投票。平票候選人仍可退水。`);
+        state.speakerStartTime = Date.now();
+        logRoom(state, `警長競選再次平票（${tieSeats.join(", ")} 號）！進入大眾發言輪。`);
+        emitTTS(state.roomId, `再次平票，進入大眾發言輪，請 ${otherSpeakers[0]} 號玩家發言。`);
       } else {
         logRoom(state, "警長再度平票（或全體棄票），警徽流失，本局無警長！");
+        emitTTS(state.roomId, "警長平票，警徽流失，本局無警長。");
         announceDeathAndStartDay(state);
       }
     }
@@ -464,12 +560,14 @@ function tallyVotes(state) {
 
       if (exiled.role === "白痴" && !exiled.idiotRevealed) {
         exiled.idiotRevealed = true;
-        logRoom(state, `🃏【白痴翻牌免死】${maxSeat} 號是【白痴】！翻牌免除本次放逐，繼續存活在場，但喪失公投投票權！`);
+        logRoom(state, `【白痴翻牌免死】${maxSeat} 號是【白痴】！翻牌免除本次放逐，繼續存活在場，但失去投票權！`);
+        emitTTS(state.roomId, `${maxSeat} 號是白痴，翻牌免死存活，但失去投票權！`);
 
         if (exiled.isSheriff) {
           state.postDeathHandler = "START_NIGHT";
           state.phase = "SHERIFF_TRANSFER";
           logRoom(state, `白痴警長被投票放逐，雖免死但必須移交或撕毀警徽！`);
+          emitTTS(state.roomId, "白痴警長被投票放逐，請移交或撕毀警徽。");
         } else {
           startNight(state);
         }
@@ -479,7 +577,8 @@ function tallyVotes(state) {
       exiled.alive = false;
       state.exiledPlayer = exiled;
       state.phase = "DAY_LAST_WORDS";
-      logRoom(state, `💀 ${maxSeat} 號以 ${maxCount} 票被放逐出局，請發表遺言。`);
+      logRoom(state, `${maxSeat} 號玩家出局（以 ${maxCount} 票被放逐），請發表遺言。`);
+      emitTTS(state.roomId, `${maxSeat} 號玩家出局，請發表遺言。`);
       checkGameOver(state);
     } else {
       if (state.phase === "DAY_VOTE" && isTie && tieSeats.length > 0) {
@@ -500,9 +599,12 @@ function tallyVotes(state) {
 
         state.speakingQueue = pkQueue;
         state.speakerIdx = 0;
-        logRoom(state, `⚖️ 公投首次平票（${tieSeats.join(", ")} 號）！進入 PK 環節，依反方向發言：${pkQueue.join(" ➔ ")} 號。`);
+        state.speakerStartTime = Date.now();
+        logRoom(state, `公投平票（${tieSeats.join(", ")} 號）！現在進入 PK 階段，依反方向發言：${pkQueue.join(" -> ")} 號。`);
+        emitTTS(state.roomId, `${tieSeats.join(" 號、")} 號平票，現在進入 PK 階段。請 ${pkQueue[0]} 號玩家發言。`);
       } else {
         logRoom(state, "公投再次平票（或無有效票），本日無人出局，直接進入黑夜。");
+        emitTTS(state.roomId, "公投平票，本日無人出局，直接進入黑夜。");
         startNight(state);
       }
     }
@@ -510,11 +612,44 @@ function tallyVotes(state) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("JOIN_ROOM", ({ roomId, userId, name, isSpectator }) => {
-    if (!rooms[roomId]) {
-      rooms[roomId] = getDefaultRoomState(roomId);
+  socket.on("CREATE_ROOM", ({ roomId, userId, name, isSpectator }) => {
+    if (rooms[roomId] && rooms[roomId].players.length > 0) {
+      socket.emit("ENTRY_ERROR", `房間號 ${roomId} 已被佔用，請更換一個房號！`);
+      return;
     }
+
+    const state = getDefaultRoomState(roomId, userId);
+    rooms[roomId] = state;
+
+    const player = {
+      id: userId,
+      socketId: socket.id,
+      name: name || `房主_${userId.slice(-4)}`,
+      seat: isSpectator ? null : 1,
+      role: null,
+      alive: true,
+      explodedThisDay: false,
+      isSheriff: false,
+      idiotRevealed: false,
+      isSpectator: !!isSpectator,
+      online: true,
+      lastDisconnectAt: null
+    };
+
+    state.players.push(player);
+    logRoom(state, `房主 ${player.name} 創建了房間 ${roomId} ${isSpectator ? '（旁觀上帝視角）' : '（1號位）'}`);
+
+    socket.join(roomId);
+    socket.emit("ENTRY_SUCCESS", { roomId, isHost: true });
+    broadcastRoomState(roomId);
+  });
+
+  socket.on("JOIN_ROOM", ({ roomId, userId, name, isSpectator }) => {
     const state = rooms[roomId];
+    if (!state) {
+      socket.emit("ENTRY_ERROR", `找不到房間號 ${roomId}，請確認房號是否正確或由房主先建立房間！`);
+      return;
+    }
 
     let player = state.players.find(p => p.id === userId);
     if (!player) {
@@ -523,10 +658,11 @@ io.on("connection", (socket) => {
         player = {
           id: userId,
           socketId: socket.id,
-          name: name || `玩家${userId.slice(-4)}`,
+          name: name || `玩家_${userId.slice(-4)}`,
           seat: isSpectator ? null : gamePlayers.length + 1,
           role: null,
           alive: true,
+          explodedThisDay: false,
           isSheriff: false,
           idiotRevealed: false,
           isSpectator: !!isSpectator,
@@ -534,10 +670,9 @@ io.on("connection", (socket) => {
           lastDisconnectAt: null
         };
         state.players.push(player);
-        if (!state.hostId) state.hostId = userId;
         logRoom(state, `${player.name} 加入了房間 ${player.isSpectator ? '（觀眾席）' : `（${player.seat}號位）`}`);
       } else {
-        socket.emit("JOIN_ERROR", "遊戲已在進行中，無法以新玩家身分加入。");
+        socket.emit("ENTRY_ERROR", "該房間遊戲已在進行中，無法以新玩家身分加入。");
         return;
       }
     } else {
@@ -549,6 +684,7 @@ io.on("connection", (socket) => {
     }
 
     socket.join(roomId);
+    socket.emit("ENTRY_SUCCESS", { roomId, isHost: state.hostId === userId });
     broadcastRoomState(roomId);
   });
 
@@ -585,6 +721,37 @@ io.on("connection", (socket) => {
     broadcastRoomState(roomId);
   });
 
+  socket.on("SEND_WOLF_CHAT", ({ roomId, userId, message }) => {
+    const state = rooms[roomId];
+    if (!state || !state.started) return;
+
+    if (state.phase !== "NIGHT_WOLF") return;
+
+    const sender = state.players.find(p => p.id === userId);
+    if (!sender) return;
+
+    const isWolf = ["狼人", "白狼王"].includes(sender.role);
+    const canChat = sender.alive || sender.explodedThisDay;
+
+    if (isWolf && canChat && message && message.trim()) {
+      const chatItem = {
+        senderSeat: sender.seat,
+        senderName: sender.name,
+        role: sender.role,
+        message: message.trim(),
+        time: new Date().toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      };
+      if (!state.wolfChatHistory) state.wolfChatHistory = [];
+      state.wolfChatHistory.push(chatItem);
+
+      state.players.forEach(p => {
+        if (p.isSpectator || ["狼人", "白狼王"].includes(p.role)) {
+          io.to(p.socketId).emit("RECEIVE_WOLF_CHAT", chatItem);
+        }
+      });
+    }
+  });
+
   socket.on("GAME_ACTION", ({ roomId, userId, actionType, data }) => {
     const state = rooms[roomId];
     if (!state) return;
@@ -594,16 +761,10 @@ io.on("connection", (socket) => {
 
       switch (state.phase) {
         case "NIGHT_GUARD":
-          enterNightPhase(state, "NIGHT_WOLF");
-          break;
         case "NIGHT_WOLF":
-          enterNightPhase(state, "NIGHT_WITCH");
-          break;
         case "NIGHT_WITCH":
-          enterNightPhase(state, "NIGHT_SEER");
-          break;
         case "NIGHT_SEER":
-          finishNight(state);
+          advanceNightStep(state, state.phase);
           break;
         case "DAY_SHERIFF_RUN":
           if (state.sheriffCandidates.length === 0) {
@@ -620,12 +781,17 @@ io.on("connection", (socket) => {
             if (state.phase === "DAY_SHERIFF_SPEAK") {
               state.phase = "DAY_SHERIFF_VOTE";
               state.votes = {};
+              emitTTS(state.roomId, "請大家開始投票。");
             } else if (state.phase === "DAY_DISCUSS") {
               startDayVote(state);
             } else if (state.phase === "DAY_PK_SPEAK") {
               state.phase = "DAY_PK_VOTE";
               state.votes = {};
+              emitTTS(state.roomId, "請大家開始投票。");
             }
+          } else {
+            state.speakerStartTime = Date.now();
+            emitTTS(state.roomId, `請 ${state.speakingQueue[state.speakerIdx]} 號玩家開始發言。`);
           }
           break;
         case "DAY_NIGHT_LAST_WORDS":
@@ -670,6 +836,7 @@ io.on("connection", (socket) => {
       state.phase = "LOBBY";
       state.sheriff = null;
       state.sheriffRound = 1;
+      state.sheriffDecisions = {};
       state.sheriffCandidates = [];
       state.sheriffWithdrawn = [];
       state.sheriffTieCandidates = [];
@@ -686,6 +853,8 @@ io.on("connection", (socket) => {
       state.activeDeathSeat = null;
       state.hunterDeathReason = {};
       state.wolfTargets = {};
+      state.wolfChatHistory = [];
+      state.spectatorLogs = ["=== 房主已重置遊戲，請重新設定板子並開局 ==="];
       state.guardTarget = null;
       state.lastGuardTarget = null;
       state.witchAntidoteUsed = false;
@@ -696,6 +865,7 @@ io.on("connection", (socket) => {
       state.lastKilled = null;
       state.speakingQueue = [];
       state.speakerIdx = 0;
+      state.speakerStartTime = null;
       state.votes = {};
       state.exiledPlayer = null;
       state.logs = ["=== 房主已重置遊戲，請重新設定板子並發牌開局 ==="];
@@ -703,6 +873,7 @@ io.on("connection", (socket) => {
       state.players.forEach(p => {
         p.role = null;
         p.alive = true;
+        p.explodedThisDay = false;
         p.isSheriff = false;
         p.idiotRevealed = false;
       });
@@ -711,28 +882,19 @@ io.on("connection", (socket) => {
     }
 
     if (actionType === "START_GAME") {
-      const { preset, enableSheriff } = data;
-      state.preset = preset;
+      const { roles, winRule, enableSheriff, witchSelfSaveFirstNight } = data;
+      state.winRule = winRule || "side";
       state.enableSheriff = enableSheriff;
-      let roles = [];
-
-      if (preset === "standard6") {
-        roles = ["狼人", "狼人", "預言家", "女巫", "村民", "村民"];
-      } else if (preset === "standard9") {
-        roles = ["狼人", "狼人", "狼人", "預言家", "女巫", "獵人", "村民", "村民", "村民"];
-      } else if (preset === "standard12_idiot") {
-        roles = ["狼人", "狼人", "狼人", "狼人", "預言家", "女巫", "獵人", "白痴", "村民", "村民", "村民", "村民"];
-      } else if (preset === "standard12_wolfking") {
-        roles = ["狼人", "狼人", "狼人", "白狼王", "預言家", "女巫", "獵人", "守衛", "村民", "村民", "村民", "村民"];
-      }
+      state.witchSelfSaveFirstNight = witchSelfSaveFirstNight !== undefined ? witchSelfSaveFirstNight : true;
 
       const gamePlayers = state.players.filter(p => !p.isSpectator);
       if (gamePlayers.length < roles.length) return;
 
-      roles.sort(() => Math.random() - 0.5);
+      const shuffledRoles = [...roles].sort(() => Math.random() - 0.5);
       gamePlayers.forEach((p, idx) => {
-        p.role = roles[idx];
+        p.role = shuffledRoles[idx];
         p.alive = true;
+        p.explodedThisDay = false;
         p.isSheriff = false;
         p.idiotRevealed = false;
       });
@@ -740,47 +902,55 @@ io.on("connection", (socket) => {
       state.started = true;
       state.gameOver = false;
       state.dayCount = 0;
+      state.wolfChatHistory = [];
+      state.spectatorLogs = [];
       state.witchAntidoteUsed = false;
       state.witchPoisonUsed = false;
       state.guardTarget = null;
       state.lastGuardTarget = null;
-      logRoom(state, "=== 遊戲開始，天黑請閉眼 ===");
+      logRoom(state, `=== 遊戲開始（${roles.length}人局・${winRule === 'all' ? '屠城規則' : '屠邊規則'}・女巫首夜${state.witchSelfSaveFirstNight ? '可自救' : '不可自救'}），天黑請閉眼 ===`);
       startNight(state);
     } else if (actionType === "GUARD_ACTION") {
       state.guardTarget = data.targetSeat;
       state.lastGuardTarget = data.targetSeat;
+      logSpectator(state, `守衛行動：守護了【${data.targetSeat === 0 ? "空守" : data.targetSeat + " 號"}】。`);
       logRoom(state, "守衛完成守護。");
-      enterNightPhase(state, "NIGHT_WOLF");
+      advanceNightStep(state, "NIGHT_GUARD");
     } else if (actionType === "WOLF_VOTE") {
       state.wolfTargets[userId] = data.targetSeat;
-      const aliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && p.alive);
+      const aliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && (p.alive || p.explodedThisDay));
       const votes = Object.values(state.wolfTargets);
 
       if (votes.length >= aliveWolves.length) {
         const allSame = votes.every(v => v === votes[0]);
         if (allSame) {
           state.lastKilled = votes[0];
-          logRoom(state, "狼人統一襲擊目標，輪到女巫行動。");
-          enterNightPhase(state, "NIGHT_WITCH");
+          logSpectator(state, `狼人行動：統一襲擊目標為【${votes[0]} 號】。`);
+          logRoom(state, "狼人統一襲擊目標。");
+          advanceNightStep(state, "NIGHT_WOLF");
         }
       }
     } else if (actionType === "WITCH_ACTION") {
       if (data.save && state.lastKilled) {
         state.witchSaveThisNight = true;
         state.witchAntidoteUsed = true;
-      }
-      if (data.killSeat) {
+        logSpectator(state, `女巫行動：使用解藥救起 ${state.lastKilled} 號。`);
+      } else if (data.killSeat) {
         state.witchPoisonThisNight = data.killSeat;
         state.witchPoisonUsed = true;
+        logSpectator(state, `女巫行動：使用毒藥毒殺 ${data.killSeat} 號。`);
+      } else {
+        logSpectator(state, "女巫行動：未使用藥劑。");
       }
-      logRoom(state, "女巫完成行動，輪到預言家。");
-      enterNightPhase(state, "NIGHT_SEER");
+      logRoom(state, "女巫完成行動。");
+      advanceNightStep(state, "NIGHT_WITCH");
     } else if (actionType === "SEER_CHECK") {
       const target = state.players.find(p => !p.isSpectator && p.seat === data.targetSeat);
       const isBad = target && ["狼人", "白狼王"].includes(target.role);
       const resultString = isBad ? "狼人" : "好人";
 
       state.seerCheckLog = `查驗 ${data.targetSeat}號，身份為【${resultString}】`;
+      logSpectator(state, `預言家行動：查驗 ${data.targetSeat} 號，結果為【${resultString}】。`);
       logRoom(state, "預言家完成驗人。");
 
       socket.emit("SEER_RESULT", {
@@ -789,34 +959,48 @@ io.on("connection", (socket) => {
         result: resultString
       });
 
-      finishNight(state);
+      advanceNightStep(state, "NIGHT_SEER");
     } else if (actionType === "OPT_SHERIFF") {
       const player = state.players.find(p => p.id === userId);
+      if (!player || player.isSpectator) return;
+
+      state.sheriffDecisions[userId] = !!data.run;
+
       if (data.run) {
         if (!state.sheriffCandidates.includes(player.seat)) state.sheriffCandidates.push(player.seat);
       } else {
         state.sheriffCandidates = state.sheriffCandidates.filter(s => s !== player.seat);
       }
-    } else if (actionType === "FINISH_SHERIFF_ENROLL") {
-      if (userId !== state.hostId) return;
 
-      if (state.sheriffCandidates.length === 0) {
-        logRoom(state, "無人競選警長，本局無警長。");
-        announceDeathAndStartDay(state);
-      } else if (state.sheriffCandidates.length === 1) {
-        electSheriff(state, state.sheriffCandidates[0], "僅一位候選人，自動當選警長！");
-      } else {
-        state.phase = "DAY_SHERIFF_SPEAK";
-        state.sheriffRound = 1;
-        const startIdx = Math.floor(Math.random() * state.sheriffCandidates.length);
-        const queue = [];
-        for (let i = 0; i < state.sheriffCandidates.length; i++) {
-          queue.push(state.sheriffCandidates[(startIdx + i) % state.sheriffCandidates.length]);
+      const gamePlayers = state.players.filter(p => !p.isSpectator);
+      const allChosen = gamePlayers.every(p => state.sheriffDecisions[p.id] !== undefined);
+
+      if (allChosen) {
+        if (state.sheriffCandidates.length === gamePlayers.length) {
+          logRoom(state, "【警長競選】全員均選擇上警，無警下投票玩家！警徽流失，本局無警長。");
+          emitTTS(state.roomId, "全員上警，警徽流失，本局無警長。");
+          announceDeathAndStartDay(state);
+        } else if (state.sheriffCandidates.length === 0) {
+          logRoom(state, "【警長競選】無人競選警長，警徽流失，本局無警長。");
+          emitTTS(state.roomId, "無人競選警長，本局無警長。");
+          announceDeathAndStartDay(state);
+        } else if (state.sheriffCandidates.length === 1) {
+          electSheriff(state, state.sheriffCandidates[0], "僅一位候選人，自動當選警長！");
+        } else {
+          state.phase = "DAY_SHERIFF_SPEAK";
+          state.sheriffRound = 1;
+          const startIdx = Math.floor(Math.random() * state.sheriffCandidates.length);
+          const queue = [];
+          for (let i = 0; i < state.sheriffCandidates.length; i++) {
+            queue.push(state.sheriffCandidates[(startIdx + i) % state.sheriffCandidates.length]);
+          }
+          state.speakingQueue = queue;
+          state.sheriffLastSpeakQueue = [...queue];
+          state.speakerIdx = 0;
+          state.speakerStartTime = Date.now();
+          logRoom(state, `上警名單：${state.sheriffCandidates.join(", ")} 號。從 ${queue[0]} 號開始順序發言。`);
+          emitTTS(state.roomId, `請 ${queue[0]} 號玩家開始發言。`);
         }
-        state.speakingQueue = queue;
-        state.sheriffLastSpeakQueue = [...queue];
-        state.speakerIdx = 0;
-        logRoom(state, `上警名單：${state.sheriffCandidates.join(", ")} 號。從 ${queue[0]} 號開始順序發言。`);
       }
     } else if (actionType === "SHERIFF_WITHDRAW") {
       const player = state.players.find(p => p.id === userId);
@@ -825,21 +1009,43 @@ io.on("connection", (socket) => {
         if (!state.sheriffWithdrawn.includes(player.seat)) state.sheriffWithdrawn.push(player.seat);
         logRoom(state, `【警長競選】${player.seat} 號選擇退水。`);
 
+        const removeIdx = state.speakingQueue.indexOf(player.seat);
+        if (removeIdx !== -1) {
+          state.speakingQueue.splice(removeIdx, 1);
+          if (state.speakerIdx > removeIdx) {
+            state.speakerIdx--;
+          }
+        }
+
         if (state.sheriffCandidates.length === 1) {
           electSheriff(state, state.sheriffCandidates[0], "警上其餘人均已退水，自動當選警長！");
           broadcastRoomState(roomId);
           return;
+        } else if (state.sheriffCandidates.length === 0) {
+          logRoom(state, "警上候選人均已退水，警徽流失，本局無警長！");
+          emitTTS(state.roomId, "警上候選人均已退水，警徽流失，本局無警長。");
+          announceDeathAndStartDay(state);
+          broadcastRoomState(roomId);
+          return;
         }
 
-        if (state.speakingQueue[state.speakerIdx] === player.seat) {
-          state.speakerIdx++;
+        if (state.speakerIdx >= state.speakingQueue.length) {
+          state.phase = "DAY_SHERIFF_VOTE";
+          state.votes = {};
+          logRoom(state, "警上發言結束，警下玩家開始投票。");
+          emitTTS(state.roomId, "請大家開始投票。");
+        } else {
+          state.speakerStartTime = Date.now();
+          emitTTS(state.roomId, `請 ${state.speakingQueue[state.speakerIdx]} 號玩家開始發言。`);
         }
       }
     } else if (actionType === "WOLF_EXPLODE") {
       const wolf = state.players.find(p => p.id === userId);
       if (wolf && ["狼人", "白狼王"].includes(wolf.role) && wolf.alive) {
         wolf.alive = false;
-        logRoom(state, `💥💥💥 ${wolf.seat} 號狼人選擇自爆！自爆出局，直接進入黑夜。`);
+        wolf.explodedThisDay = true;
+        logRoom(state, `${wolf.seat} 號狼人選擇自爆！自爆出局，直接進入黑夜。`);
+        emitTTS(state.roomId, `${wolf.seat} 號狼人自爆出局！直接進入黑夜。`);
 
         if (checkGameOver(state)) {
           broadcastRoomState(roomId);
@@ -850,26 +1056,32 @@ io.on("connection", (socket) => {
           state.postDeathHandler = "START_NIGHT";
           state.phase = "SHERIFF_TRANSFER";
           logRoom(state, `${wolf.seat} 號警長自爆出局，請移交或撕毀警徽。`);
+          emitTTS(state.roomId, "警長自爆出局，請移交或撕毀警徽。");
         } else {
           startNight(state);
         }
       }
-    } else if (actionType === "HOST_NEXT_SPEAKER") {
-      if (userId !== state.hostId) return;
+    } else if (actionType === "NEXT_SPEAKER") {
+      const currentSpeakerSeat = state.speakingQueue[state.speakerIdx];
+      const speakerPlayer = state.players.find(p => p.id === userId);
+      if (!speakerPlayer || speakerPlayer.seat !== currentSpeakerSeat) return;
 
       state.speakerIdx++;
       if (state.speakerIdx >= state.speakingQueue.length) {
+        state.speakerStartTime = null;
         if (state.phase === "DAY_SHERIFF_SPEAK") {
           state.phase = "DAY_SHERIFF_VOTE";
           state.votes = {};
           if (state.sheriffRound === 1) logRoom(state, "第一輪警上發言結束，警下玩家開始投票。");
           else if (state.sheriffRound === 2) logRoom(state, "首次平票 PK 反向發言結束，具投票權玩家開始投票。");
           else logRoom(state, "大眾發言結束，具投票權玩家開始投票。");
+          emitTTS(state.roomId, "請大家開始投票。");
         } else if (state.phase === "DAY_DISCUSS") {
           const aliveSheriff = state.players.find(p => !p.isSpectator && p.isSheriff && p.alive);
           if (aliveSheriff) {
             state.phase = "DAY_SHERIFF_CALL";
             logRoom(state, `白天發言結束，請警長 ${aliveSheriff.seat} 號進行歸票。`);
+            emitTTS(state.roomId, "發言結束，請警長歸票。");
           } else {
             startDayVote(state);
           }
@@ -877,14 +1089,21 @@ io.on("connection", (socket) => {
           state.phase = "DAY_PK_VOTE";
           state.votes = {};
           logRoom(state, "公投 PK 反向發言結束，其餘存活玩家開始投票。");
+          emitTTS(state.roomId, "請大家開始投票。");
         }
+      } else {
+        state.speakerStartTime = Date.now();
+        emitTTS(state.roomId, `請 ${state.speakingQueue[state.speakerIdx]} 號玩家開始發言。`);
       }
-    } else if (actionType === "HOST_FINISH_LAST_WORDS") {
-      if (userId !== state.hostId) return;
+    } else if (actionType === "FINISH_LAST_WORDS") {
+      const caller = state.players.find(p => p.id === userId);
+      if (!caller) return;
 
       if (state.phase === "DAY_NIGHT_LAST_WORDS") {
+        if (caller.seat !== state.currentLastWordSeat) return;
         processFirstNightLastWords(state);
       } else if (state.phase === "DAY_LAST_WORDS") {
+        if (caller.seat !== state.exiledPlayer.seat) return;
         logRoom(state, "放逐遺言結束。");
         state.hunterDeathReason[state.exiledPlayer.seat] = "vote";
         state.pendingDeathQueue = [state.exiledPlayer.seat];
@@ -893,7 +1112,7 @@ io.on("connection", (socket) => {
       }
     } else if (actionType === "SHERIFF_CALL") {
       state.sheriffCallTarget = data.targetSeat;
-      logRoom(state, `⭐ 警長歸票目標：【${data.targetSeat === 0 ? "不指定 / 隨意" : data.targetSeat + " 號"}】`);
+      logRoom(state, `警長歸票目標：【${data.targetSeat === 0 ? "不指定 / 隨意" : data.targetSeat + " 號"}】`);
       startDayVote(state);
     } else if (actionType === "CAST_VOTE") {
       const voter = state.players.find(p => p.id === userId);
@@ -926,10 +1145,13 @@ io.on("connection", (socket) => {
           if (shotTarget) {
             shotTarget.alive = false;
 
-            if (state.preset === "standard12_wolfking") {
-              logRoom(state, `🔫【出局開槍】${deadSeat} 號開槍帶走了 ${shotTarget.seat} 號玩家 (${shotTarget.name})！`);
+            const hasWolfKing = state.players.some(p => p.role === "白狼王");
+            if (hasWolfKing) {
+              logRoom(state, `【出局開槍】${deadSeat} 號開槍帶走了 ${shotTarget.seat} 號玩家 (${shotTarget.name}) 出局！`);
+              emitTTS(state.roomId, `${deadSeat} 號開槍帶走了 ${shotTarget.seat} 號玩家出局！`);
             } else {
-              logRoom(state, `🔫【出局玩家翻牌】${deadSeat} 號是【獵人】！發動技能翻槍帶走了 ${shotTarget.seat} 號玩家 (${shotTarget.name})！`);
+              logRoom(state, `【出局玩家翻牌】${deadSeat} 號是【獵人】！發動技能翻槍帶走了 ${shotTarget.seat} 號玩家 (${shotTarget.name}) 出局！`);
+              emitTTS(state.roomId, `${deadSeat} 號是獵人，翻槍帶走了 ${shotTarget.seat} 號玩家出局！`);
             }
 
             if (checkGameOver(state)) {
@@ -943,6 +1165,7 @@ io.on("connection", (socket) => {
             if (shotTarget.isSheriff) {
               state.phase = "SHERIFF_TRANSFER";
               logRoom(state, `${shotTarget.seat} 號警長中槍出局，請移交或撕毀警徽。`);
+              emitTTS(state.roomId, "警長中槍出局，請移交或撕毀警徽。");
               broadcastRoomState(roomId);
               return;
             }
@@ -961,11 +1184,13 @@ io.on("connection", (socket) => {
         if (newSheriff) {
           newSheriff.isSheriff = true;
           state.sheriff = newSheriff.seat;
-          logRoom(state, `⭐ 警徽移交給 ${newSheriff.seat} 號！`);
+          logRoom(state, `警徽移交給 ${newSheriff.seat} 號！`);
+          emitTTS(state.roomId, `警長將警徽移交至 ${newSheriff.seat} 號。`);
         }
       } else {
         state.sheriff = null;
-        logRoom(state, "⭐ 警長選擇撕掉警徽，本局再無警長！");
+        logRoom(state, "警長選擇撕掉警徽，本局再無警長！");
+        emitTTS(state.roomId, "警長選擇撕毀警徽，本局再無警長。");
       }
 
       processPostDeathStep(state);
