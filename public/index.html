@@ -300,6 +300,16 @@
             line-height: 1.4;
         }
 
+        .lang-selector {
+            background: #18181b;
+            border: 1px solid #3f3f46;
+            color: #e1e1e6;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
         @media (max-width: 860px) {
             .logs-notepad-container {
                 flex-direction: column;
@@ -314,49 +324,57 @@
 
 <body>
 
-    <!-- 入口：Host 與 Join 明確分流 -->
-    <div id="entry-view" style="max-width: 520px; margin: 40px auto 0 auto;">
+    <!-- 入口畫面 -->
+    <div id="entry-view" style="max-width: 520px; margin: 30px auto 0 auto;">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+            <select id="lang-select-entry" class="lang-selector" onchange="changeLanguage(this.value)">
+                <option value="zh-TW">繁體中文</option>
+                <option value="zh-CN">简体中文</option>
+            </select>
+        </div>
+
         <div style="display: flex; margin-bottom: -1px; padding-left: 8px;">
             <button id="tab-host" class="tab-btn active" onclick="switchEntryTab('host')">創建房間 (Host)</button>
             <button id="tab-join" class="tab-btn" onclick="switchEntryTab('join')">加入房間 (Join)</button>
         </div>
 
         <div id="card-host" class="card" style="border-top-left-radius: 0;">
-            <h2>創建新遊戲房間</h2>
+            <h2 id="txt-host-title">創建新遊戲房間</h2>
             <div style="margin-bottom: 12px;">
-                <label>設定房間號：</label><br />
+                <label id="txt-host-room-lbl">設定房間號：</label><br />
                 <input type="text" id="host-room-input" placeholder="例如: 888" value="888" style="width: 70%;">
-                <button onclick="randomRoomCode()" style="background:#4b5563;">隨機房號</button>
+                <button onclick="randomRoomCode()" style="background:#4b5563;" id="txt-rand-room">隨機房號</button>
             </div>
             <div style="margin-bottom: 12px;">
-                <label>房主暱稱：</label><br />
+                <label id="txt-host-name-lbl">房主暱稱：</label><br />
                 <input type="text" id="host-name-input" placeholder="房主暱稱 (預設為 房主_XXXX)" style="width: 100%;">
             </div>
             <div style="margin-bottom: 16px;">
-                <label style="cursor: pointer;">
+                <label style="cursor: pointer;" id="txt-host-spec-lbl">
                     <input type="checkbox" id="host-spectator-check"> 我作為法官 / 觀眾主持 (上帝視角，不佔參賽座位)
                 </label>
             </div>
-            <button class="action" style="width: 100%; padding: 12px; font-size: 16px;"
+            <button id="btn-create-room" class="action" style="width: 100%; padding: 12px; font-size: 16px;"
                 onclick="createRoom()">創建並進入房間</button>
         </div>
 
         <div id="card-join" class="card hidden" style="border-top-left-radius: 0;">
-            <h2 style="color: #38bdf8;">加入現有房間</h2>
+            <h2 id="txt-join-title" style="color: #38bdf8;">加入現有房間</h2>
             <div style="margin-bottom: 12px;">
-                <label>輸入房間號：</label><br />
+                <label id="txt-join-room-lbl">輸入房間號：</label><br />
                 <input type="text" id="join-room-input" placeholder="請輸入房號" style="width: 100%;">
             </div>
             <div style="margin-bottom: 12px;">
-                <label>玩家暱稱：</label><br />
+                <label id="txt-join-name-lbl">玩家暱稱：</label><br />
                 <input type="text" id="join-name-input" placeholder="玩家暱稱 (預設為 玩家_XXXX)" style="width: 100%;">
             </div>
             <div style="margin-bottom: 16px;">
-                <label style="cursor: pointer;">
+                <label style="cursor: pointer;" id="txt-join-spec-lbl">
                     <input type="checkbox" id="join-spectator-check"> 僅以觀眾身分觀戰 (上帝視角)
                 </label>
             </div>
-            <button style="width: 100%; padding: 12px; font-size: 16px; background: #38bdf8; color: #121214;"
+            <button id="btn-join-room"
+                style="width: 100%; padding: 12px; font-size: 16px; background: #38bdf8; color: #121214;"
                 onclick="joinExistingRoom()">進入房間</button>
         </div>
     </div>
@@ -369,21 +387,27 @@
                 <div id="speaker-timer-badge" class="timer-badge hidden">發言: 0秒</div>
                 <label
                     style="font-size: 13px; cursor: pointer; color: #a1a1aa; display: flex; align-items: center; margin-left: 6px;">
-                    <input type="checkbox" id="tts-toggle" checked onchange="toggleTTS(this.checked)"> 語音播報
+                    <input type="checkbox" id="tts-toggle" checked onchange="toggleTTS(this.checked)"> <span
+                        id="txt-tts-lbl">語音播報</span>
                 </label>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
+                <select id="lang-select-game" class="lang-selector" onchange="changeLanguage(this.value)">
+                    <option value="zh-TW">繁體中文</option>
+                    <option value="zh-CN">简体中文</option>
+                </select>
                 <div id="host-badge" style="font-size: 13px; color: #fba94c; font-weight: bold;"></div>
-                <button class="danger" style="margin: 0; padding: 6px 12px;" onclick="leaveRoom()">退出房間</button>
+                <button id="btn-leave-room" class="danger" style="margin: 0; padding: 6px 12px;"
+                    onclick="leaveRoom()">退出房間</button>
             </div>
         </div>
 
         <!-- 房主控制台 -->
         <div id="host-panel" class="card hidden">
-            <h3>房主控制台</h3>
+            <h3 id="txt-host-panel-title">房主控制台</h3>
             <div id="setup-controls">
                 <div style="margin-bottom: 8px;">
-                    <label>快速套用預設：</label>
+                    <label id="txt-preset-lbl">快速套用預設：</label>
                     <select id="preset-quick-select" onchange="applyPreset(this.value)">
                         <option value="custom">-- 自訂板子 --</option>
                         <option value="6_standard">6人 預女雙狼 (屠城)</option>
@@ -399,7 +423,7 @@
 
                 <div class="role-config-box">
                     <div class="role-counter-card">
-                        <span class="role-label">狼人</span>
+                        <span class="role-label" id="lbl-role-狼人">狼人</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('狼人', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -409,7 +433,7 @@
                         </div>
                     </div>
                     <div class="role-counter-card">
-                        <span class="role-label">白狼王</span>
+                        <span class="role-label" id="lbl-role-白狼王">白狼王</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('白狼王', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -419,7 +443,7 @@
                         </div>
                     </div>
                     <div class="role-counter-card">
-                        <span class="role-label">預言家</span>
+                        <span class="role-label" id="lbl-role-預言家">預言家</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('預言家', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -429,7 +453,7 @@
                         </div>
                     </div>
                     <div class="role-counter-card">
-                        <span class="role-label">女巫</span>
+                        <span class="role-label" id="lbl-role-女巫">女巫</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('女巫', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -439,7 +463,7 @@
                         </div>
                     </div>
                     <div class="role-counter-card">
-                        <span class="role-label">獵人</span>
+                        <span class="role-label" id="lbl-role-獵人">獵人</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('獵人', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -449,7 +473,7 @@
                         </div>
                     </div>
                     <div class="role-counter-card">
-                        <span class="role-label">守衛</span>
+                        <span class="role-label" id="lbl-role-守衛">守衛</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('守衛', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -459,7 +483,7 @@
                         </div>
                     </div>
                     <div class="role-counter-card">
-                        <span class="role-label">白痴</span>
+                        <span class="role-label" id="lbl-role-白痴">白痴</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('白痴', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -469,7 +493,7 @@
                         </div>
                     </div>
                     <div class="role-counter-card">
-                        <span class="role-label">村民</span>
+                        <span class="role-label" id="lbl-role-村民">村民</span>
                         <div>
                             <button class="icon-btn" onclick="changeRoleCount('村民', -1)"><span
                                     class="material-symbols-outlined">remove</span></button>
@@ -481,25 +505,27 @@
                 </div>
 
                 <div style="margin: 8px 0;">
-                    <label>勝利規則：</label>
+                    <label id="txt-win-lbl">勝利規則：</label>
                     <select id="win-rule-select">
                         <option value="side">屠邊規則 (殺光神職 或 殺光平民)</option>
                         <option value="all">屠城規則 (殺光所有好人)</option>
                     </select>
-                    <label style="margin-left:12px;"><input type="checkbox" id="enable-sheriff" checked> 開啟警長競選</label>
-                    <label style="margin-left:12px;"><input type="checkbox" id="witch-self-save" checked>
-                        女巫首夜可自救</label>
+                    <label style="margin-left:12px;"><input type="checkbox" id="enable-sheriff" checked> <span
+                            id="txt-enable-sheriff">開啟警長競選</span></label>
+                    <label style="margin-left:12px;"><input type="checkbox" id="witch-self-save" checked> <span
+                            id="txt-witch-self-save">女巫首夜可自救</span></label>
                 </div>
 
                 <div style="margin: 10px 0; font-size: 14px;">
-                    當前配置人數：<b id="total-config-count" style="color:#fba94c;">12</b> 人 | 實際就座玩家：<b
-                        id="actual-player-count" style="color:#04d361;">0</b> 人
+                    <span id="txt-cfg-count-lbl">當前配置人數：</span><b id="total-config-count" style="color:#fba94c;">12</b>
+                    <span id="txt-person-1">人</span> | <span id="txt-act-count-lbl">實際就座玩家：</span><b
+                        id="actual-player-count" style="color:#04d361;">0</b> <span id="txt-person-2">人</span>
                 </div>
 
-                <button class="action" onclick="startGame()">發牌並開始遊戲</button>
+                <button id="btn-start-game" class="action" onclick="startGame()">發牌並開始遊戲</button>
             </div>
             <div id="restart-controls" class="hidden" style="margin-top: 10px;">
-                <button class="warn" onclick="restartGame()">重新開始新的一局 (保留當前所有玩家)</button>
+                <button id="btn-restart-game" class="warn" onclick="restartGame()">重新開始新的一局 (保留當前所有玩家)</button>
             </div>
         </div>
 
@@ -507,10 +533,11 @@
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
-                    <span>房間：<b id="display-room"></b></span> |
-                    <span>暱稱：<b id="display-name"></b></span> |
-                    <span>座位：<b id="display-seat">-</b></span> |
-                    <span>狀態：<b id="display-status" style="color:#04d361;">存活</b></span>
+                    <span><span id="txt-room-lbl">房間</span>：<b id="display-room"></b></span> |
+                    <span><span id="txt-name-lbl">暱稱</span>：<b id="display-name"></b></span> |
+                    <span><span id="txt-seat-lbl">座位</span>：<b id="display-seat">-</b></span> |
+                    <span><span id="txt-status-lbl">狀態</span>：<b id="display-status"
+                            style="color:#04d361;">存活</b></span>
                 </div>
                 <div>
                     <button id="show-role-btn" onclick="toggleRole()">查看底牌</button>
@@ -522,7 +549,7 @@
 
         <!-- 上帝視角面板 (觀眾專屬) -->
         <div id="god-panel" class="card god-view hidden">
-            <h3 style="color: #38bdf8;">觀眾席 - 全知上帝視角</h3>
+            <h3 style="color: #38bdf8;" id="txt-god-title">觀眾席 - 全知上帝視角</h3>
             <div id="god-player-details" style="margin-bottom: 8px;"></div>
             <div id="god-night-actions"
                 style="font-size: 13px; color: #a1a1aa; border-top: 1px dashed #3f3f46; padding-top: 6px;"></div>
@@ -531,7 +558,7 @@
         <!-- 狼人夜間專屬密聊室 -->
         <div id="wolf-chat-panel" class="card wolf-chat-card hidden">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <h3 style="color: #f87171; margin:0;">狼人夜間密聊室</h3>
+                <h3 style="color: #f87171; margin:0;" id="txt-wolf-chat-title">狼人夜間密聊室</h3>
                 <span id="wolf-chat-status" style="font-size:12px; color:#a8a29e;">(僅在狼人黑夜階段開放)</span>
             </div>
             <div id="wolf-chat-box" class="chat-msg-list"></div>
@@ -551,7 +578,8 @@
 
         <!-- 場上玩家名單 -->
         <div class="card">
-            <h3>場上玩家 (<span id="player-count">0</span>) | 觀眾席 (<span id="spectator-count">0</span>)</h3>
+            <h3><span id="txt-player-list-lbl">場上玩家</span> (<span id="player-count">0</span>) | <span
+                    id="txt-spec-list-lbl">觀眾席</span> (<span id="spectator-count">0</span>)</h3>
             <div id="player-list"></div>
             <div id="spectator-list" style="margin-top: 8px; font-size: 13px; color: #38bdf8;"></div>
         </div>
@@ -564,7 +592,7 @@
                     <div id="my-log-box" class="log-box personal-log"></div>
                 </div>
                 <div class="card" style="margin-bottom:0; flex:1;">
-                    <h3 style="margin-bottom:8px;">法官公共日誌</h3>
+                    <h3 style="margin-bottom:8px;" id="txt-public-log-lbl">法官公共日誌</h3>
                     <div id="log-box" class="log-box"></div>
                 </div>
             </div>
@@ -572,8 +600,8 @@
             <div class="notepad-column">
                 <div class="card" style="margin-bottom:0; height: 100%; display:flex; flex-direction:column;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <h3 style="margin:0;">我的個人筆記本</h3>
-                        <span style="font-size:12px; color:#888;">(自動儲存)</span>
+                        <h3 style="margin:0;" id="txt-notepad-title">我的個人筆記本</h3>
+                        <span style="font-size:12px; color:#888;" id="txt-notepad-autosave">(自動儲存)</span>
                     </div>
                     <textarea id="player-notepad" style="flex:1; min-height: 290px; resize:none;" placeholder="記錄場上信息，例如：
 1 預言家 查殺 2
@@ -587,13 +615,208 @@
     <script>
         let socket = io();
         let roomCode = "";
-        // 🌟 上線正式模式：使用 localStorage 讓重整/短暫跳出可無縫復原連線
         let myId = localStorage.getItem("werewolf_uid") || ("user_" + Math.floor(Math.random() * 1000000));
         localStorage.setItem("werewolf_uid", myId);
         let myName = "";
         let isSpectator = false;
         let myPersonalLogs = [];
         let timerInterval = null;
+
+        // 🌟 繁簡多語言轉換系統
+        let currentLang = localStorage.getItem("werewolf_lang") || "zh-TW";
+
+        const dictTWtoCN = {
+            "創建房間 (Host)": "创建房间 (Host)",
+            "加入房間 (Join)": "加入房间 (Join)",
+            "創建新遊戲房間": "创建新游戏房间",
+            "設定房間號：": "设置房间号：",
+            "隨機房號": "随机房号",
+            "房主暱稱：": "房主昵称：",
+            "房主暱稱 (預設為 房主_XXXX)": "房主昵称 (默认 房主_XXXX)",
+            "我作為法官 / 觀眾主持 (上帝視角，不佔參賽座位)": "我作为法官 / 观众主持 (上帝视角，不占参赛座位)",
+            "創建並進入房間": "创建并进入房间",
+            "加入現有房間": "加入现有房间",
+            "輸入房間號：": "输入房间号：",
+            "請輸入房號": "请输入房号",
+            "玩家暱稱：": "玩家昵称：",
+            "玩家暱稱 (預設為 玩家_XXXX)": "玩家昵称 (默认 玩家_XXXX)",
+            "僅以觀眾身分觀戰 (上帝視角)": "仅以观众身份观战 (上帝视角)",
+            "進入房間": "进入房间",
+            "語音播報": "语音播报",
+            "你是房主": "你是房主",
+            "退出房間": "退出房间",
+            "房主控制台": "房主控制台",
+            "快速套用預設：": "快速套用预设：",
+            "-- 自訂板子 --": "-- 自定义板子 --",
+            "6人 預女雙狼 (屠城)": "6人 预女双狼 (屠城)",
+            "8人 預女雙狼 (屠城)": "8人 预女双狼 (屠城)",
+            "8人 預女獵三狼 (屠城)": "8人 预女猎三狼 (屠城)",
+            "9人 標準局 (3狼 預女獵 3民)": "9人 标准局 (3狼 预女猎 3民)",
+            "10人 標準局 (3狼 預女獵 4民)": "10人 标准局 (3狼 预女猎 4民)",
+            "10人 狼王守衛 (2狼1狼王 預女獵守 3民)": "10人 狼王守卫 (2狼1狼王 预女猎守 3民)",
+            "12人 預女獵白 (4狼 預女獵白 4民)": "12人 预女猎白 (4狼 预女猎白 4民)",
+            "12人 預女獵守狼王 (3狼1狼王 預女獵守 4民)": "12人 预女猎守狼王 (3狼1狼王 预女猎守 4民)",
+            "狼人": "狼人",
+            "白狼王": "白狼王",
+            "預言家": "预言家",
+            "女巫": "女巫",
+            "獵人": "猎人",
+            "守衛": "守卫",
+            "白痴": "白痴",
+            "村民": "村民",
+            "勝利規則：": "胜利规则：",
+            "屠邊規則 (殺光神職 或 殺光平民)": "屠边规则 (杀光神职 或 杀光平民)",
+            "屠城規則 (殺光所有好人)": "屠城规则 (杀光所有好人)",
+            "開啟警長競選": "开启警长竞选",
+            "女巫首夜可自救": "女巫首夜可自救",
+            "當前配置人數：": "当前配置人数：",
+            "實際就座玩家：": "实际就座玩家：",
+            "人": "人",
+            "發牌並開始遊戲": "发牌并开始游戏",
+            "重新開始新的一局 (保留當前所有玩家)": "重新开始新的一局 (保留当前所有玩家)",
+            "房間": "房间",
+            "暱稱": "昵称",
+            "座位": "座位",
+            "狀態": "状态",
+            "存活": "存活",
+            "已出局 (死亡)": "已出局 (死亡)",
+            "觀眾席": "观众席",
+            "旁觀中": "旁观中",
+            "存活(已翻牌)": "存活(已翻牌)",
+            "查看底牌": "查看底牌",
+            "觀眾席 - 全知上帝視角": "观众席 - 全知上帝视角",
+            "狼人夜間密聊室": "狼人夜间密聊室",
+            "(僅在狼人黑夜階段開放)": "(仅在狼人黑夜阶段开放)",
+            "在黑夜中與狼隊友密謀...": "在黑夜中与狼队友密谋...",
+            "發送": "发送",
+            "場上玩家": "场上玩家",
+            "個人專屬行動日誌（僅自己可見）": "个人专属行动日志（仅自己可见）",
+            "旁觀者即時進程日誌 (全量記錄)": "旁观者即时进程日志 (全量记录)",
+            "法官公共日誌": "法官公共日志",
+            "我的個人筆記本": "我的个人笔记本",
+            "(自動儲存)": "(自动保存)",
+            "天黑請閉眼。": "天黑请闭眼。",
+            "守衛請睜眼。": "守卫请睁眼。",
+            "狼人請睜眼。": "狼人请睁眼。",
+            "女巫請睜眼。": "女巫请睁眼。",
+            "預言家請睜眼。": "预言家请睁眼。",
+            "請警長決定發言順序。": "请警长决定发言顺序。",
+            "發言結束，請警長歸票。": "发言结束，请警长归票。",
+            "請大家開始投票。": "请大家开始投票。",
+            "警長出局，請移交或撕毀警徽。": "警长出局，请移交或撕毁警徽。",
+            "空守（不守任何人）": "空守（不守任何人）",
+            "🗡️ 空刀（不襲擊任何人）": "🗡️ 空刀（不袭击任何人）",
+            "不使用藥劑": "不使用药剂",
+            "我要上警": "我要上警",
+            "不上警": "不上警",
+            "結束我的發言": "结束我的发言",
+            "點擊退水 (退出警長競選)": "点击退水 (退出警长竞选)",
+            "狼人自爆！": "狼人自爆！",
+            "棄票": "弃票",
+            "撕毀警徽": "撕毁警徽",
+            "不指定歸票": "不指定归票",
+            "結束我的遺言": "结束我的遗言",
+            "確認結束出局操作": "确认结束出局操作",
+            "壓槍（不開槍、結束操作）": "压枪（不开枪、结束操作）",
+            "房主備用強制推進（跳過卡頓/覆寫）": "房主备用强制推进（跳过卡顿/覆写）"
+        };
+
+        function t(text) {
+            if (!text || currentLang === "zh-TW") return text;
+            if (dictTWtoCN[text]) return dictTWtoCN[text];
+
+            // 常見字詞置換
+            return text
+                .replace(/預言家/g, "预言家")
+                .replace(/獵人/g, "猎人")
+                .replace(/守衛/g, "守卫")
+                .replace(/發言/g, "发言")
+                .replace(/開槍/g, "开枪")
+                .replace(/出局/g, "出局")
+                .replace(/存活/g, "存活")
+                .replace(/遺言/g, "遗言")
+                .replace(/警長/g, "警长")
+                .replace(/警徽/g, "警徽")
+                .replace(/歸票/g, "归票")
+                .replace(/點殺/g, "点杀")
+                .replace(/查驗/g, "查验")
+                .replace(/獲勝/g, "获胜")
+                .replace(/陣營/g, "阵营")
+                .replace(/遊戲/g, "游戏")
+                .replace(/平票/g, "平票")
+                .replace(/觀眾/g, "观众")
+                .replace(/號/g, "号");
+        }
+
+        function changeLanguage(lang) {
+            currentLang = lang;
+            localStorage.setItem("werewolf_lang", lang);
+            document.getElementById("lang-select-entry").value = lang;
+            document.getElementById("lang-select-game").value = lang;
+            applyStaticLanguage();
+            render();
+        }
+
+        function applyStaticLanguage() {
+            document.getElementById("tab-host").innerText = t("創建房間 (Host)");
+            document.getElementById("tab-join").innerText = t("加入房間 (Join)");
+            document.getElementById("txt-host-title").innerText = t("創建新遊戲房間");
+            document.getElementById("txt-host-room-lbl").innerText = t("設定房間號：");
+            document.getElementById("txt-rand-room").innerText = t("隨機房號");
+            document.getElementById("txt-host-name-lbl").innerText = t("房主暱稱：");
+            document.getElementById("host-name-input").placeholder = t("房主暱稱 (預設為 房主_XXXX)");
+            document.getElementById("txt-host-spec-lbl").innerHTML = `<input type="checkbox" id="host-spectator-check"> ${t("我作為法官 / 觀眾主持 (上帝視角，不佔參賽座位)")}`;
+            document.getElementById("btn-create-room").innerText = t("創建並進入房間");
+
+            document.getElementById("txt-join-title").innerText = t("加入現有房間");
+            document.getElementById("txt-join-room-lbl").innerText = t("輸入房間號：");
+            document.getElementById("join-room-input").placeholder = t("請輸入房號");
+            document.getElementById("txt-join-name-lbl").innerText = t("玩家暱稱：");
+            document.getElementById("join-name-input").placeholder = t("玩家暱稱 (預設為 玩家_XXXX)");
+            document.getElementById("txt-join-spec-lbl").innerHTML = `<input type="checkbox" id="join-spectator-check"> ${t("僅以觀眾身分觀戰 (上帝視角)")}`;
+            document.getElementById("btn-join-room").innerText = t("進入房間");
+
+            document.getElementById("txt-tts-lbl").innerText = t("語音播報");
+            document.getElementById("btn-leave-room").innerText = t("退出房間");
+            document.getElementById("txt-host-panel-title").innerText = t("房主控制台");
+            document.getElementById("txt-preset-lbl").innerText = t("快速套用預設：");
+
+            // 預設下拉
+            const sel = document.getElementById("preset-quick-select");
+            Array.from(sel.options).forEach(opt => {
+                opt.innerText = t(opt.value === "custom" ? "-- 自訂板子 --" : opt.innerText);
+            });
+
+            for (let r in roleCounts) {
+                const el = document.getElementById(`lbl-role-${r}`);
+                if (el) el.innerText = t(r);
+            }
+
+            document.getElementById("txt-win-lbl").innerText = t("勝利規則：");
+            document.getElementById("txt-enable-sheriff").innerText = t("開啟警長競選");
+            document.getElementById("txt-witch-self-save").innerText = t("女巫首夜可自救");
+            document.getElementById("txt-cfg-count-lbl").innerText = t("當前配置人數：");
+            document.getElementById("txt-act-count-lbl").innerText = t("實際就座玩家：");
+            document.getElementById("txt-person-1").innerText = t("人");
+            document.getElementById("txt-person-2").innerText = t("人");
+            document.getElementById("btn-start-game").innerText = t("發牌並開始遊戲");
+            document.getElementById("btn-restart-game").innerText = t("重新開始新的一局 (保留當前所有玩家)");
+
+            document.getElementById("txt-room-lbl").innerText = t("房間");
+            document.getElementById("txt-name-lbl").innerText = t("暱稱");
+            document.getElementById("txt-seat-lbl").innerText = t("座位");
+            document.getElementById("txt-status-lbl").innerText = t("狀態");
+            document.getElementById("show-role-btn").innerText = t("查看底牌");
+            document.getElementById("txt-god-title").innerText = t("觀眾席 - 全知上帝視角");
+            document.getElementById("txt-wolf-chat-title").innerText = t("狼人夜間密聊室");
+            document.getElementById("wolf-chat-input").placeholder = t("在黑夜中與狼隊友密謀...");
+            document.getElementById("wolf-chat-send-btn").innerText = t("發送");
+            document.getElementById("txt-player-list-lbl").innerText = t("場上玩家");
+            document.getElementById("txt-spec-list-lbl").innerText = t("觀眾席");
+            document.getElementById("txt-public-log-lbl").innerText = t("法官公共日誌");
+            document.getElementById("txt-notepad-title").innerText = t("我的個人筆記本");
+            document.getElementById("txt-notepad-autosave").innerText = t("(自動儲存)");
+        }
 
         // 法官 TTS 語音佇列引擎
         let ttsEnabled = true;
@@ -611,7 +834,7 @@
 
         function speakText(text) {
             if (!ttsEnabled || !('speechSynthesis' in window)) return;
-            ttsQueue.push(text);
+            ttsQueue.push(t(text));
             processTTSQueue();
         }
 
@@ -621,7 +844,7 @@
             isSpeaking = true;
             const text = ttsQueue.shift();
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'zh-TW';
+            utterance.lang = currentLang === 'zh-CN' ? 'zh-CN' : 'zh-TW';
             utterance.rate = 1.0;
             utterance.pitch = 1.0;
 
@@ -638,7 +861,6 @@
             window.speechSynthesis.speak(utterance);
         }
 
-        // 接收後端發送的 TTS 廣播
         socket.on("TTS_ANNOUNCE", (text) => {
             speakText(text);
         });
@@ -722,18 +944,18 @@
 
         function createRoom() {
             roomCode = document.getElementById("host-room-input").value.trim();
-            myName = document.getElementById("host-name-input").value.trim() || ("房主_" + myId.slice(-4));
+            myName = document.getElementById("host-name-input").value.trim() || (t("房主_") + myId.slice(-4));
             isSpectator = document.getElementById("host-spectator-check").checked;
-            if (!roomCode) return alert("請輸入或產生房間號");
+            if (!roomCode) return alert(t("請輸入或產生房間號"));
 
             socket.emit("CREATE_ROOM", { roomId: roomCode, userId: myId, name: myName, isSpectator });
         }
 
         function joinExistingRoom() {
             roomCode = document.getElementById("join-room-input").value.trim();
-            myName = document.getElementById("join-name-input").value.trim() || ("玩家_" + myId.slice(-4));
+            myName = document.getElementById("join-name-input").value.trim() || (t("玩家_") + myId.slice(-4));
             isSpectator = document.getElementById("join-spectator-check").checked;
-            if (!roomCode) return alert("請輸入要加入的房間號");
+            if (!roomCode) return alert(t("請輸入要加入的房間號"));
 
             socket.emit("JOIN_ROOM", { roomId: roomCode, userId: myId, name: myName, isSpectator });
         }
@@ -742,16 +964,16 @@
             document.getElementById("entry-view").classList.add("hidden");
             document.getElementById("game-view").classList.remove("hidden");
             document.getElementById("display-room").innerText = roomId;
-            document.getElementById("display-name").innerText = myName + (isSpectator ? " (觀眾)" : "");
+            document.getElementById("display-name").innerText = myName + (isSpectator ? ` (${t("觀眾")})` : "");
             document.getElementById("player-notepad").value = localStorage.getItem(`werewolf_notes_${roomId}`) || "";
         });
 
         socket.on("ENTRY_ERROR", (msg) => {
-            alert(msg);
+            alert(t(msg));
         });
 
         function leaveRoom() {
-            if (confirm("確定要退出目前房間嗎？")) {
+            if (confirm(t("確定要退出目前房間嗎？"))) {
                 if ('speechSynthesis' in window) window.speechSynthesis.cancel();
                 ttsQueue = [];
                 isSpeaking = false;
@@ -816,7 +1038,7 @@
 
         socket.on("SEER_RESULT", ({ dayCount, targetSeat, result }) => {
             logPersonal(`第 ${dayCount} 夜：查驗 ${targetSeat}號，身份為【${result}】！`);
-            alert(`查驗結果：${targetSeat} 號是【${result}】（已自動記錄至個人日誌）`);
+            alert(t(`查驗結果：${targetSeat} 號是【${result}】（已自動記錄至個人日誌）`));
         });
 
         socket.on("RECEIVE_WOLF_CHAT", (chatItem) => {
@@ -840,7 +1062,7 @@
             box.innerHTML = history.map(item => `
       <div class="chat-item">
         <span style="color:#78716c; font-size:11px;">[${item.time}]</span>
-        <b style="color:#f87171;">${item.senderSeat ? item.senderSeat + '號' : ''} ${item.senderName}:</b>
+        <b style="color:#f87171;">${item.senderSeat ? item.senderSeat + t('號') : ''} ${item.senderName}:</b>
         <span>${item.message}</span>
       </div>
     `).join("");
@@ -860,9 +1082,9 @@
             const box = document.getElementById("my-log-box");
             if (isSpectator) {
                 const specLogs = state.spectatorLogs || [];
-                box.innerHTML = specLogs.map(l => `<div>> ${l}</div>`).join("");
+                box.innerHTML = specLogs.map(l => `<div>> ${t(l)}</div>`).join("");
             } else {
-                box.innerHTML = myPersonalLogs.map(l => `<div>> ${l}</div>`).join("");
+                box.innerHTML = myPersonalLogs.map(l => `<div>> ${t(l)}</div>`).join("");
             }
             box.scrollTop = box.scrollHeight;
         }
@@ -882,7 +1104,7 @@
 
             const gamePlayers = state.players.filter(p => !p.isSpectator);
             if (roles.length !== gamePlayers.length) {
-                return alert(`人數不符！目前配置了 ${roles.length} 張牌，但場上參賽玩家有 ${gamePlayers.length} 位。`);
+                return alert(t(`人數不符！目前配置了 ${roles.length} 張牌，但場上參賽玩家有 ${gamePlayers.length} 位。`));
             }
 
             const winRule = document.getElementById("win-rule-select").value;
@@ -892,7 +1114,7 @@
         }
 
         function restartGame() {
-            if (confirm("確定要重開新的一局嗎？房間內的所有玩家名單將會保留。")) {
+            if (confirm(t("確定要重開新的一局嗎？房間內的所有玩家名單將會保留。"))) {
                 dispatchAction("RESTART_GAME");
             }
         }
@@ -916,7 +1138,11 @@
         }
 
         function wolfVote(targetSeat) {
-            logPersonal(`第 ${state.dayCount} 夜：選擇襲擊【${targetSeat}號】`);
+            if (targetSeat > 0) {
+                logPersonal(`第 ${state.dayCount} 夜：選擇襲擊【${targetSeat}號】`);
+            } else {
+                logPersonal(`第 ${state.dayCount} 夜：選擇【空刀（不襲擊任何人）】`);
+            }
             dispatchAction("WOLF_VOTE", { targetSeat });
         }
 
@@ -956,7 +1182,7 @@
         }
 
         function explodeWolf() {
-            if (confirm("確定要在此時自爆嗎？這將直接結束白天！")) {
+            if (confirm(t("確定要在此時自爆嗎？這將直接結束白天！"))) {
                 logPersonal("你選擇了自爆！");
                 dispatchAction("WOLF_EXPLODE");
             }
@@ -986,14 +1212,14 @@
             const roleText = document.getElementById("role-text");
             if (roleText.classList.contains("hidden")) {
                 if (isSpectator) {
-                    roleText.innerText = "你是【觀眾】，擁有上帝視角！";
+                    roleText.innerText = t("你是【觀眾】，擁有上帝視角！");
                 } else {
-                    let text = me && me.role ? `你的身份是：【${me.role}】` : "遊戲尚未發牌";
+                    let text = me && me.role ? t(`你的身份是：【${t(me.role)}】`) : t("遊戲尚未發牌");
                     if (me && ["狼人", "白狼王"].includes(me.role)) {
                         const wolfmates = state.players
                             .filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id)
-                            .map(p => `${p.seat}號(${p.name} - ${p.role})`);
-                        text += wolfmates.length > 0 ? `<br/><span style="font-size:14px; color:#f87171;">你的狼隊友：${wolfmates.join(", ")}</span>` : `<br/><span style="font-size:14px; color:#f87171;">場上無其他狼隊友</span>`;
+                            .map(p => `${p.seat}${t('號')}(${p.name} - ${t(p.role)})`);
+                        text += wolfmates.length > 0 ? `<br/><span style="font-size:14px; color:#f87171;">${t('你的狼隊友：')}${wolfmates.join(", ")}</span>` : `<br/><span style="font-size:14px; color:#f87171;">${t('場上無其他狼隊友')}</span>`;
                     }
                     roleText.innerHTML = text;
                 }
@@ -1004,9 +1230,9 @@
         }
 
         function getPhaseDisplayName(phase, dayCount) {
-            if (phase === "LOBBY") return "等待開局";
+            if (phase === "LOBBY") return t("等待開局");
             const isNight = phase.startsWith("NIGHT_");
-            const prefix = `第 ${dayCount} 天・${isNight ? '夜晚' : '白天'}`;
+            const prefix = t(`第 ${dayCount} 天・${isNight ? '夜晚' : '白天'}`);
 
             const map = {
                 "NIGHT_GUARD": "守衛守護",
@@ -1028,7 +1254,7 @@
                 "SHERIFF_TRANSFER": "警徽移交/撕毀"
             };
 
-            return `${prefix}【${map[phase] || phase}】`;
+            return `${prefix}【${t(map[phase] || phase)}】`;
         }
 
         function updateTimer() {
@@ -1037,7 +1263,7 @@
 
             if (isSpeakingPhase && state.speakerStartTime) {
                 const elapsed = Math.floor((Date.now() - state.speakerStartTime) / 1000);
-                timerBadge.innerText = `發言: ${elapsed} 秒`;
+                timerBadge.innerText = `${t("發言")}: ${elapsed} ${t("秒")}`;
                 timerBadge.classList.remove("hidden");
             } else {
                 timerBadge.classList.add("hidden");
@@ -1052,7 +1278,7 @@
                 ctrls.innerHTML += `
         <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #555;">
           <button class="danger" style="width: 100%;" onclick="hostForceNext()">
-            房主備用強制推進（跳過卡頓/覆寫）
+            ${t("房主備用強制推進（跳過卡頓/覆寫）")}
           </button>
         </div>
       `;
@@ -1065,14 +1291,14 @@
             const isWolfTeam = ["狼人", "白狼王"].includes(me.role);
 
             document.getElementById("game-timeline-badge").innerText = getPhaseDisplayName(state.phase, state.dayCount);
-            document.getElementById("host-badge").innerText = isHost ? "你是房主" : "";
+            document.getElementById("host-badge").innerText = isHost ? t("你是房主") : "";
 
             document.getElementById("host-panel").classList.toggle("hidden", !isHost);
             document.getElementById("setup-controls").classList.toggle("hidden", state.started);
             document.getElementById("restart-controls").classList.toggle("hidden", !state.started);
 
-            document.getElementById("display-seat").innerText = me.isSpectator ? "觀眾席" : (me.seat ? `${me.seat} 號` : "-");
-            document.getElementById("display-status").innerText = me.isSpectator ? "旁觀中" : (me.alive ? (me.idiotRevealed ? "存活(已翻牌)" : "存活") : "已出局 (死亡)");
+            document.getElementById("display-seat").innerText = me.isSpectator ? t("觀眾席") : (me.seat ? `${me.seat} ${t("號")}` : "-");
+            document.getElementById("display-status").innerText = me.isSpectator ? t("旁觀中") : (me.alive ? (me.idiotRevealed ? t("存活(已翻牌)") : t("存活")) : t("已出局 (死亡)"));
             document.getElementById("display-status").style.color = me.isSpectator ? "#38bdf8" : (me.alive ? (me.idiotRevealed ? "#a855f7" : "#04d361") : "#e53e3e");
 
             const gamePlayers = state.players.filter(p => !p.isSpectator);
@@ -1084,19 +1310,19 @@
             // 玩家名單
             document.getElementById("player-list").innerHTML = gamePlayers.map(p => {
                 const isMyWolfmate = isWolfTeam && ["狼人", "白狼王"].includes(p.role) && p.id !== me.id;
-                const offlineTag = !p.online ? `<span style="font-size:11px; color:#a1a1aa;">(離線)</span>` : "";
+                const offlineTag = !p.online ? `<span style="font-size:11px; color:#a1a1aa;">(${t("離線")})</span>` : "";
                 return `
         <div class="player-badge ${!p.alive ? 'dead' : ''} ${!p.online ? 'offline' : ''} ${p.isSheriff ? 'badge-sheriff' : ''} ${p.idiotRevealed ? 'badge-idiot' : ''} ${isMyWolfmate ? 'badge-wolfteam' : ''}">
-          ${p.seat}號: ${p.name} ${offlineTag} ${p.isSheriff ? '(警長)' : ''} ${p.idiotRevealed ? '(翻牌白痴)' : ''} ${isMyWolfmate ? `(${p.role})` : ''} ${!p.alive ? '(死亡)' : ''}
+          ${p.seat}${t('號')}: ${p.name} ${offlineTag} ${p.isSheriff ? `(${t('警長')})` : ''} ${p.idiotRevealed ? `(${t('翻牌白痴')})` : ''} ${isMyWolfmate ? `(${t(p.role)})` : ''} ${!p.alive ? `(${t('死亡')})` : ''}
         </div>
       `;
             }).join("");
 
             document.getElementById("spectator-list").innerHTML = spectators.length > 0
-                ? `觀眾名單：` + spectators.map(s => `<span class="player-badge badge-spectator ${!s.online ? 'offline' : ''}">${s.name}${!s.online ? '(離線)' : ''}</span>`).join(" ")
+                ? `${t("觀眾名單：")}` + spectators.map(s => `<span class="player-badge badge-spectator ${!s.online ? 'offline' : ''}">${s.name}${!s.online ? `(${t('離線')})` : ''}</span>`).join(" ")
                 : "";
 
-            document.getElementById("log-title-text").innerText = isSpectator ? "旁觀者即時進程日誌 (全量記錄)" : "個人專屬行動日誌（僅自己可見）";
+            document.getElementById("log-title-text").innerText = isSpectator ? t("旁觀者即時進程日誌 (全量記錄)") : t("個人專屬行動日誌（僅自己可見）");
 
             // 狼人密聊面板控制
             const wolfChatPanel = document.getElementById("wolf-chat-panel");
@@ -1111,17 +1337,17 @@
                 if (canChatNow) {
                     wolfChatInput.disabled = false;
                     wolfChatSendBtn.disabled = false;
-                    wolfChatStatus.innerText = "【夜間密聊開放中】";
+                    wolfChatStatus.innerText = t("【夜間密聊開放中】");
                     wolfChatStatus.style.color = "#04d361";
                 } else {
                     wolfChatInput.disabled = true;
                     wolfChatSendBtn.disabled = true;
                     if (state.phase !== "NIGHT_WOLF") {
-                        wolfChatStatus.innerText = "【僅在狼人黑夜階段開放】";
+                        wolfChatStatus.innerText = t("【僅在狼人黑夜階段開放】");
                     } else if (!me.alive && !me.explodedThisDay) {
-                        wolfChatStatus.innerText = "【已出局（非自爆），不可發言】";
+                        wolfChatStatus.innerText = t("【已出局（非自爆），不可發言】");
                     } else if (isSpectator) {
-                        wolfChatStatus.innerText = "【觀眾席僅供旁觀】";
+                        wolfChatStatus.innerText = t("【觀眾席僅供旁觀】");
                     }
                     wolfChatStatus.style.color = "#a8a29e";
                 }
@@ -1135,25 +1361,25 @@
                 godPanel.classList.remove("hidden");
                 document.getElementById("god-player-details").innerHTML = gamePlayers.map(p => `
         <div style="display:inline-block; margin: 6px; padding: 6px 10px; background: #27272a; border-radius: 4px; font-size: 13px;">
-          <b>${p.seat}號 ${p.name}</b>: <span style="color:#fba94c;">${p.role || '未發牌'}</span> 
-          [${p.alive ? (p.idiotRevealed ? '<span style="color:#a855f7;">翻牌存活</span>' : '<span style="color:#04d361;">存活</span>') : '<span style="color:#e53e3e;">死亡</span>'}]
-          ${!p.online ? '<span style="color:#71717a;">(離線)</span>' : ''}
-          ${p.isSheriff ? '(警長)' : ''}
+          <b>${p.seat}${t('號')} ${p.name}</b>: <span style="color:#fba94c;">${t(p.role) || t('未發牌')}</span> 
+          [${p.alive ? (p.idiotRevealed ? `<span style="color:#a855f7;">${t('翻牌存活')}</span>` : `<span style="color:#04d361;">${t('存活')}</span>`) : `<span style="color:#e53e3e;">${t('死亡')}</span>`}]
+          ${!p.online ? `<span style="color:#71717a;">(${t('離線')})</span>` : ''}
+          ${p.isSheriff ? `(${t('警長')})` : ''}
         </div>
       `).join("");
 
-                let nightActionsText = `<b>本夜暗盤即時狀態：</b><br/>`;
+                let nightActionsText = `<b>${t('本夜暗盤即時狀態：')}</b><br/>`;
                 const hasGuard = gamePlayers.some(p => p.role === "守衛");
                 if (hasGuard) {
-                    nightActionsText += `• 守衛守護：${state.guardTarget ? state.guardTarget + '號' : (state.guardTarget === 0 ? '空守' : '尚未行動')}<br/>`;
+                    nightActionsText += `• ${t('守衛守護')}：${state.guardTarget ? state.guardTarget + t('號') : (state.guardTarget === 0 ? t('空守') : t('尚未行動'))}<br/>`;
                 }
                 const wolfVotesList = Object.entries(state.wolfTargets).map(([uid, seat]) => {
                     const wolfPlayer = state.players.find(pl => pl.id === uid);
-                    return `${wolfPlayer ? wolfPlayer.seat + '號' : '狼人'} -> ${seat}號`;
+                    return `${wolfPlayer ? wolfPlayer.seat + t('號') : t('狼人')} -> ${seat === 0 ? t('空刀') : seat + t('號')}`;
                 });
-                nightActionsText += `• 狼人點殺：${wolfVotesList.length > 0 ? wolfVotesList.join(", ") : '尚未行動'} (最終擊殺: ${state.lastKilled ? state.lastKilled + '號' : '無'})<br/>`;
-                nightActionsText += `• 女巫用藥：${state.witchSaveThisNight ? '使用解藥' : (state.witchPoisonThisNight ? '毒殺 ' + state.witchPoisonThisNight + '號' : '無')}<br/>`;
-                nightActionsText += `• 預言家查驗：${state.seerCheckLog || '尚未查驗'}`;
+                nightActionsText += `• ${t('狼人點殺')}：${wolfVotesList.length > 0 ? wolfVotesList.join(", ") : t('尚未行動')} (${t('最終擊殺')}: ${state.lastKilled === 0 ? t('空刀') : (state.lastKilled ? state.lastKilled + t('號') : t('無'))})<br/>`;
+                nightActionsText += `• ${t('女巫用藥')}：${state.witchSaveThisNight ? t('使用解藥') : (state.witchPoisonThisNight ? t('毒殺 ') + state.witchPoisonThisNight + t('號') : t('無'))}<br/>`;
+                nightActionsText += `• ${t('預言家查驗')}：${t(state.seerCheckLog) || t('尚未查驗')}`;
                 document.getElementById("god-night-actions").innerHTML = nightActionsText;
             } else {
                 godPanel.classList.add("hidden");
@@ -1162,7 +1388,7 @@
             renderPersonalLogs();
 
             const box = document.getElementById("log-box");
-            box.innerHTML = state.logs.map(l => `<div>> ${l.replace(/\n/g, '<br/>&nbsp;&nbsp;')}</div>`).join("");
+            box.innerHTML = state.logs.map(l => `<div>> ${t(l).replace(/\n/g, '<br/>&nbsp;&nbsp;')}</div>`).join("");
             box.scrollTop = box.scrollHeight;
 
             const title = document.getElementById("phase-title");
@@ -1171,14 +1397,14 @@
             ctrls.innerHTML = "";
 
             if (state.gameOver) {
-                title.innerText = "遊戲結束";
-                inst.innerText = `獲勝方：【${state.winner}】！房主可點選上方「重新開始新的一局」。`;
+                title.innerText = t("遊戲結束");
+                inst.innerText = t(`獲勝方：【${t(state.winner)}】！房主可點選上方「重新開始新的一局」。`);
                 renderHostButton(ctrls, isHost);
                 return;
             }
 
             if (state.phase === "DEATH_SKILL_CHECK") {
-                title.innerText = "出局操作確認階段";
+                title.innerText = t("出局操作確認階段");
                 const deadSeat = state.activeDeathSeat;
                 const isDeadMe = me.seat === deadSeat;
                 const deadPlayer = state.players.find(p => !p.isSpectator && p.seat === deadSeat);
@@ -1187,166 +1413,167 @@
 
                 if (isDeadMe) {
                     if (isGunman && !isPoisoned) {
-                        inst.innerText = `你是【${deadPlayer.role}】，已出局！請選擇是否發動技能帶走一名存活玩家：`;
+                        inst.innerText = t(`你是【${t(deadPlayer.role)}】，已出局！請選擇是否發動技能帶走一名存活玩家：`);
                         state.players.filter(p => !p.isSpectator && p.alive && p.seat !== me.seat).forEach(p => {
-                            ctrls.innerHTML += `<button class="danger" onclick="resolveDeathSkill(${p.seat})">開槍帶走 ${p.seat}號 (${p.name})</button>`;
+                            ctrls.innerHTML += `<button class="danger" onclick="resolveDeathSkill(${p.seat})">${t('開槍帶走')} ${p.seat}${t('號')} (${p.name})</button>`;
                         });
-                        ctrls.innerHTML += `<button class="action" onclick="resolveDeathSkill(0)">壓槍（不開槍、結束操作）</button>`;
+                        ctrls.innerHTML += `<button class="action" onclick="resolveDeathSkill(0)">${t('壓槍（不開槍、結束操作）')}</button>`;
                     } else if (isGunman && isPoisoned) {
-                        inst.innerHTML = `<span style="color:#f87171; font-weight:bold;">⚠️ 你是【${deadPlayer.role}】，但因被女巫毒殺，技能遭封印無法開槍！</span><br/>請點選確認按鈕結束操作：`;
-                        ctrls.innerHTML += `<button class="action" onclick="resolveDeathSkill(0)">✔ 確認出局（無法開槍）</button>`;
+                        inst.innerHTML = `<span style="color:#f87171; font-weight:bold;">${t('⚠️ 你是【' + t(deadPlayer.role) + '】，但因被女巫毒殺，技能遭封印無法開槍！')}</span><br/>${t('請點選確認按鈕結束操作：')}`;
+                        ctrls.innerHTML += `<button class="action" onclick="resolveDeathSkill(0)">✔ ${t('確認出局（無法開槍）')}</button>`;
                     } else {
-                        inst.innerText = "你已出局！請點選確認按鈕結束出局操作：";
-                        ctrls.innerHTML += `<button class="action" onclick="resolveDeathSkill(0)">✔ 確認結束出局操作</button>`;
+                        inst.innerText = t("你已出局！請點選確認按鈕結束出局操作：");
+                        ctrls.innerHTML += `<button class="action" onclick="resolveDeathSkill(0)">✔ ${t('確認結束出局操作')}</button>`;
                     }
                 } else {
-                    inst.innerText = `等待 ${deadSeat} 號出局玩家確認操作中...`;
+                    inst.innerText = `${t('等待')} ${deadSeat} ${t('號出局玩家確認操作中...')}`;
                 }
                 renderHostButton(ctrls, isHost);
                 return;
             }
 
             if (state.phase === "SHERIFF_TRANSFER") {
-                title.innerText = "警長出局 - 警徽處理";
+                title.innerText = t("警長出局 - 警徽處理");
                 const deadSheriff = state.players.find(p => p.isSheriff);
                 if (deadSheriff && me.seat === deadSheriff.seat) {
-                    inst.innerText = "你是警長，請選擇移交警徽給存活且未翻牌玩家，或撕毀警徽：";
+                    inst.innerText = t("你是警長，請選擇移交警徽給存活且未翻牌玩家，或撕毀警徽：");
                     state.players.filter(p => !p.isSpectator && p.alive && !p.idiotRevealed && p.seat !== me.seat).forEach(p => {
-                        ctrls.innerHTML += `<button class="action" onclick="passSheriff(${p.seat})">移交給 ${p.seat}號 (${p.name})</button>`;
+                        ctrls.innerHTML += `<button class="action" onclick="passSheriff(${p.seat})">${t('移交給')} ${p.seat}${t('號')} (${p.name})</button>`;
                     });
-                    ctrls.innerHTML += `<button class="danger" onclick="passSheriff(0)">撕毀警徽</button>`;
+                    ctrls.innerHTML += `<button class="danger" onclick="passSheriff(0)">${t('撕毀警徽')}</button>`;
                 } else {
-                    inst.innerText = "等待前任警長處理警徽...";
+                    inst.innerText = t("等待前任警長處理警徽...");
                 }
                 renderHostButton(ctrls, isHost);
                 return;
             }
 
             if (state.phase === "DAY_NIGHT_LAST_WORDS") {
-                title.innerText = "首夜出局者發表遺言";
-                inst.innerText = `請 ${state.currentLastWordSeat} 號玩家發表遺言。`;
+                title.innerText = t("首夜出局者發表遺言");
+                inst.innerText = `${t('請')} ${state.currentLastWordSeat} ${t('號玩家發表遺言。')}`;
                 if (me.seat === state.currentLastWordSeat) {
-                    ctrls.innerHTML += `<button class="action" onclick="finishLastWords()">結束我的遺言</button>`;
+                    ctrls.innerHTML += `<button class="action" onclick="finishLastWords()">${t('結束我的遺言')}</button>`;
                 } else {
-                    ctrls.innerHTML += `<span style="color:#888;">請聆聽 ${state.currentLastWordSeat} 號發表遺言...</span>`;
+                    ctrls.innerHTML += `<span style="color:#888;">${t('請聆聽')} ${state.currentLastWordSeat} ${t('號發表遺言...')}</span>`;
                 }
                 renderHostButton(ctrls, isHost);
                 return;
             }
 
             if (state.phase === "DAY_LAST_WORDS") {
-                title.innerText = "放逐出局者發表遺言";
-                inst.innerText = `請 ${state.exiledPlayer.seat} 號玩家發表出局遺言。`;
+                title.innerText = t("放逐出局者發表遺言");
+                inst.innerText = `${t('請')} ${state.exiledPlayer.seat} ${t('號玩家發表出局遺言。')}`;
                 if (me.seat === state.exiledPlayer.seat) {
-                    ctrls.innerHTML += `<button class="action" onclick="finishLastWords()">結束我的遺言</button>`;
+                    ctrls.innerHTML += `<button class="action" onclick="finishLastWords()">${t('結束我的遺言')}</button>`;
                 } else {
-                    ctrls.innerHTML += `<span style="color:#888;">請聆聽 ${state.exiledPlayer.seat} 號發表遺言...</span>`;
+                    ctrls.innerHTML += `<span style="color:#888;">${t('請聆聽')} ${state.exiledPlayer.seat} ${t('號發表遺言...')}</span>`;
                 }
                 renderHostButton(ctrls, isHost);
                 return;
             }
 
             if (!me.alive && state.started && !isSpectator) {
-                title.innerText = "你已出局";
-                inst.innerText = "出局玩家請保持安靜觀戰。";
+                title.innerText = t("你已出局");
+                inst.innerText = t("出局玩家請保持安靜觀戰。");
                 renderHostButton(ctrls, isHost);
                 return;
             }
 
             switch (state.phase) {
                 case "LOBBY":
-                    title.innerText = "等待開局";
-                    inst.innerText = isHost ? "請在上方確認板子人數與勝利條件後點選『發牌並開始遊戲』" : "等待房主發牌中...";
+                    title.innerText = t("等待開局");
+                    inst.innerText = isHost ? t("請在上方確認板子人數與勝利條件後點選『發牌並開始遊戲』") : t("等待房主發牌中...");
                     break;
 
                 case "NIGHT_GUARD":
-                    title.innerText = "黑夜降臨 - 守衛行動";
+                    title.innerText = t("黑夜降臨 - 守衛行動");
                     if (me.role === "守衛" && me.alive) {
-                        inst.innerText = `請選擇今晚守護的目標（昨夜守護：${state.lastGuardTarget ? state.lastGuardTarget + '號' : '無/空守'}，不可連續兩夜守護同一人）：`;
+                        inst.innerText = t(`請選擇今晚守護的目標（昨夜守護：${state.lastGuardTarget ? state.lastGuardTarget + '號' : '無/空守'}，不可連續兩夜守護同一人）：`);
                         state.players.filter(p => !p.isSpectator && p.alive && p.seat !== state.lastGuardTarget).forEach(p => {
-                            ctrls.innerHTML += `<button class="action" onclick="guardAction(${p.seat})">守護 ${p.seat}號 (${p.name})</button>`;
+                            ctrls.innerHTML += `<button class="action" onclick="guardAction(${p.seat})">${t('守護')} ${p.seat}${t('號')} (${p.name})</button>`;
                         });
-                        ctrls.innerHTML += `<button onclick="guardAction(0)">空守（不守任何人）</button>`;
+                        ctrls.innerHTML += `<button onclick="guardAction(0)">${t('空守（不守任何人）')}</button>`;
                     } else {
-                        inst.innerText = "天黑請閉眼，守衛正在行動中...";
+                        inst.innerText = t("天黑請閉眼，守衛正在行動中...");
                     }
                     break;
 
                 case "NIGHT_WOLF":
-                    title.innerText = "黑夜降臨 - 狼人行動";
+                    title.innerText = t("黑夜降臨 - 狼人行動");
                     if (isWolfTeam && (me.alive || me.explodedThisDay)) {
                         const myChoice = state.wolfTargets[myId];
-                        inst.innerText = myChoice ? `已選【${myChoice}號】，等待狼隊友統一...` : "請點選目標進行襲擊：";
+                        inst.innerText = myChoice !== undefined ? `${t('已選【')}${myChoice === 0 ? t('空刀') : myChoice + t('號')}${t('】，等待狼隊友統一...')}` : t("請點選目標進行襲擊：");
                         state.players.filter(p => !p.isSpectator && p.alive).forEach(p => {
                             const isPicked = myChoice === p.seat;
                             ctrls.innerHTML += `<button class="${isPicked ? 'selected' : ''}" onclick="wolfVote(${p.seat})">
-              ${isPicked ? '✓ ' : ''}擊殺 ${p.seat}號 (${p.name})
+              ${isPicked ? '✓ ' : ''}${t('擊殺')} ${p.seat}${t('號')} (${p.name})
             </button>`;
                         });
+                        ctrls.innerHTML += `<button class="${myChoice === 0 ? 'selected' : ''}" onclick="wolfVote(0)">${t('🗡️ 空刀（不襲擊任何人）')}</button>`;
                     } else {
-                        inst.innerText = "天黑請閉眼，狼人正在行動中...";
+                        inst.innerText = t("天黑請閉眼，狼人正在行動中...");
                     }
                     break;
 
                 case "NIGHT_WITCH":
-                    title.innerText = "黑夜降臨 - 女巫行動";
+                    title.innerText = t("黑夜降臨 - 女巫行動");
                     if (me.role === "女巫" && me.alive) {
                         const isKilledMe = state.lastKilled === me.seat;
                         const canSelfSave = state.dayCount === 1 && state.witchSelfSaveFirstNight;
 
                         if (state.witchAntidoteUsed) {
-                            inst.innerText = "你的解藥已用過，今晚無法得知死訊。請選擇是否使用毒藥：";
+                            inst.innerText = t("你的解藥已用過，今晚無法得知死訊。請選擇是否使用毒藥：");
                         } else {
-                            inst.innerText = `昨晚被殺的是：${state.lastKilled ? state.lastKilled + '號' : '無人被殺'}。`;
-                            if (state.lastKilled) {
+                            inst.innerText = `${t('昨晚被殺的是：')}${(state.lastKilled && state.lastKilled > 0) ? state.lastKilled + t('號') : t('無人被殺（平安夜或空刀）')}。`;
+                            if (state.lastKilled && state.lastKilled > 0) {
                                 if (isKilledMe && !canSelfSave) {
-                                    inst.innerText += "（你今晚被殺，依當前規則不可自救！）";
+                                    inst.innerText += t("（你今晚被殺，依當前規則不可自救！）");
                                 } else {
-                                    ctrls.innerHTML += `<button class="action" onclick="witchAction(true, null)">使用解藥救 ${state.lastKilled}號</button>`;
+                                    ctrls.innerHTML += `<button class="action" onclick="witchAction(true, null)">${t('使用解藥救')} ${state.lastKilled}${t('號')}</button>`;
                                 }
                             }
                         }
 
                         if (!state.witchPoisonUsed) {
                             state.players.filter(p => !p.isSpectator && p.alive).forEach(p => {
-                                ctrls.innerHTML += `<button onclick="witchAction(false, ${p.seat})">毒殺 ${p.seat}號</button>`;
+                                ctrls.innerHTML += `<button onclick="witchAction(false, ${p.seat})">${t('毒殺')} ${p.seat}${t('號')}</button>`;
                             });
                         }
-                        ctrls.innerHTML += `<button onclick="witchAction(false, null)">不使用藥劑</button>`;
+                        ctrls.innerHTML += `<button onclick="witchAction(false, null)">${t('不使用藥劑')}</button>`;
                     } else {
-                        inst.innerText = "女巫正在行動中...";
+                        inst.innerText = t("女巫正在行動中...");
                     }
                     break;
 
                 case "NIGHT_SEER":
-                    title.innerText = "黑夜降臨 - 預言家行動";
+                    title.innerText = t("黑夜降臨 - 預言家行動");
                     if (me.role === "預言家" && me.alive) {
-                        inst.innerText = "請點選你要查驗的在場玩家：";
+                        inst.innerText = t("請點選你要查驗的在場玩家：");
                         state.players.filter(p => !p.isSpectator && p.alive && p.seat !== me.seat).forEach(p => {
-                            ctrls.innerHTML += `<button onclick="seerCheck(${p.seat})">查驗 ${p.seat}號</button>`;
+                            ctrls.innerHTML += `<button onclick="seerCheck(${p.seat})">${t('查驗')} ${p.seat}${t('號')}</button>`;
                         });
                     } else {
-                        inst.innerText = "預言家正在行動中...";
+                        inst.innerText = t("預言家正在行動中...");
                     }
                     break;
 
                 case "DAY_SHERIFF_RUN": {
-                    title.innerText = "白天 - 警長競選確認";
+                    title.innerText = t("白天 - 警長競選確認");
                     const myDecision = state.sheriffDecisions ? state.sheriffDecisions[myId] : undefined;
                     const totalGameP = state.players.filter(p => !p.isSpectator).length;
                     const chosenCount = Object.keys(state.sheriffDecisions || {}).length;
 
                     if (!me.isSpectator) {
                         inst.innerText = myDecision !== undefined
-                            ? `已選擇【${myDecision ? '我要上警' : '不上警'}】，等待其他玩家選擇中 (${chosenCount}/${totalGameP})...`
-                            : `請選擇是否參與警長競選 (${chosenCount}/${totalGameP})：`;
+                            ? `${t('已選擇【')}${myDecision ? t('我要上警') : t('不上警')}${t('】，等待其他玩家選擇中')} (${chosenCount}/${totalGameP})...`
+                            : `${t('請選擇是否參與警長競選')} (${chosenCount}/${totalGameP})：`;
 
                         const isUp = myDecision === true;
                         const isDown = myDecision === false;
-                        ctrls.innerHTML += `<button class="${isUp ? 'selected' : 'action'}" onclick="optSheriff(true)">${isUp ? '✓ 已選擇上警' : '我要上警'}</button>`;
-                        ctrls.innerHTML += `<button class="${isDown ? 'selected' : ''}" onclick="optSheriff(false)">${isDown ? '✓ 已選擇不上警' : '不上警'}</button>`;
+                        ctrls.innerHTML += `<button class="${isUp ? 'selected' : 'action'}" onclick="optSheriff(true)">${isUp ? '✓ ' + t('已選擇上警') : t('我要上警')}</button>`;
+                        ctrls.innerHTML += `<button class="${isDown ? 'selected' : ''}" onclick="optSheriff(false)">${isDown ? '✓ ' + t('已選擇不上警') : t('不上警')}</button>`;
                     } else {
-                        inst.innerText = `等待全體參賽玩家確認上警意願 (${chosenCount}/${totalGameP})...`;
+                        inst.innerText = `${t('等待全體參賽玩家確認上警意願')} (${chosenCount}/${totalGameP})...`;
                     }
                     break;
                 }
@@ -1354,24 +1581,24 @@
                 case "DAY_SHERIFF_SPEAK": {
                     const speaker = state.speakingQueue[state.speakerIdx];
                     title.innerText = state.sheriffRound === 1
-                        ? "警長首輪競選發言"
-                        : (state.sheriffRound === 2 ? "警長首次平票 PK (反向發言)" : "警長大眾發言輪");
-                    inst.innerText = `當前發言玩家：【${speaker}號】`;
+                        ? t("警長首輪競選發言")
+                        : (state.sheriffRound === 2 ? t("警長首次平票 PK (反向發言)") : t("警長大眾發言輪"));
+                    inst.innerText = `${t('當前發言玩家：【')}${speaker}${t('號】')}`;
 
                     if (me.seat === speaker) {
-                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的發言</button>`;
+                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">${t('結束我的發言')}</button>`;
                     } else {
-                        ctrls.innerHTML += `<span style="color:#888;">請聆聽 ${speaker} 號發言...</span><br/>`;
+                        ctrls.innerHTML += `<span style="color:#888;">${t('請聆聽')} ${speaker} ${t('號發言...')}</span><br/>`;
                     }
 
                     if (state.sheriffCandidates.includes(me.seat)) {
-                        ctrls.innerHTML += `<button class="danger" onclick="withdrawSheriff()">點擊退水 (退出警長競選)</button>`;
+                        ctrls.innerHTML += `<button class="danger" onclick="withdrawSheriff()">${t('點擊退水 (退出警長競選)')}</button>`;
                     }
                     break;
                 }
 
                 case "DAY_ORDER_CHOOSE":
-                    title.innerText = "警長決定發言順序";
+                    title.innerText = t("警長決定發言順序");
                     if (me.isSheriff && me.alive) {
                         const gameP = state.players.filter(p => !p.isSpectator);
                         const total = gameP.length;
@@ -1380,123 +1607,123 @@
 
                         if (state.pendingDeathSeats.length === 0 || state.pendingDeathSeats.length >= 2) {
                             inst.innerText = state.pendingDeathSeats.length === 0
-                                ? "昨夜平安夜，請選擇從警左或警右開始發言："
-                                : `昨夜雙死（出局：${state.pendingDeathSeats.join(", ")} 號），請選擇從警左或警右開始發言：`;
-                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${leftSeat}, true)">警左 (${leftSeat}號) 順時針發言</button>`;
-                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${rightSeat}, false)">警右 (${rightSeat}號) 逆時針發言</button>`;
+                                ? t("昨夜平安夜，請選擇從警左或警右開始發言：")
+                                : t(`昨夜雙死（出局：${state.pendingDeathSeats.join(", ")} 號），請選擇從警左或警右開始發言：`);
+                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${leftSeat}, true)">${t('警左')} (${leftSeat}${t('號')}) ${t('順時針發言')}</button>`;
+                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${rightSeat}, false)">${t('警右')} (${rightSeat}${t('號')}) ${t('逆時針發言')}</button>`;
                         } else {
                             const deathSeat = state.pendingDeathSeats[0];
                             const deathLeft = (deathSeat % total) + 1;
                             const deathRight = deathSeat === 1 ? total : deathSeat - 1;
-                            inst.innerText = `昨夜單死（出局：${deathSeat} 號），請選擇從死左或死右開始發言：`;
-                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${deathLeft}, true)">死左 (${deathLeft}號) 順時針發言</button>`;
-                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${deathRight}, false)">死右 (${deathRight}號) 逆時針發言</button>`;
+                            inst.innerText = t(`昨夜單死（出局：${deathSeat} 號），請選擇從死左或死右開始發言：`);
+                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${deathLeft}, true)">${t('死左')} (${deathLeft}${t('號')}) ${t('順時針發言')}</button>`;
+                            ctrls.innerHTML += `<button class="action" onclick="chooseOrder(${deathRight}, false)">${t('死右')} (${deathRight}${t('號')}) ${t('逆時針發言')}</button>`;
                         }
                     } else {
-                        inst.innerText = "請等待警長決定發言順序...";
+                        inst.innerText = t("請等待警長決定發言順序...");
                     }
                     break;
 
                 case "DAY_DISCUSS": {
                     const speaker = state.speakingQueue[state.speakerIdx];
-                    title.innerText = "白天自由發言";
-                    inst.innerText = `當前發言玩家：【${speaker}號】`;
+                    title.innerText = t("白天自由發言");
+                    inst.innerText = `${t('當前發言玩家：【')}${speaker}${t('號】')}`;
 
                     if (me.seat === speaker) {
-                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的發言</button>`;
+                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">${t('結束我的發言')}</button>`;
                         if (isWolfTeam) {
-                            ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">狼人自爆！</button>`;
+                            ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">${t('狼人自爆！')}</button>`;
                         }
                     } else {
-                        ctrls.innerHTML += `<span style="color:#888;">請聆聽 ${speaker} 號發言...</span>`;
+                        ctrls.innerHTML += `<span style="color:#888;">${t('請聆聽')} ${speaker} ${t('號發言...')}</span>`;
                     }
                     break;
                 }
 
                 case "DAY_PK_SPEAK": {
                     const speaker = state.speakingQueue[state.speakerIdx];
-                    title.innerText = "白天公投 PK 反向發言";
-                    inst.innerText = `PK 發言玩家：【${speaker}號】（平票名單：${state.dayPkCandidates.join(", ")}號）`;
+                    title.innerText = t("白天公投 PK 反向發言");
+                    inst.innerText = `${t('PK 發言玩家：【')}${speaker}${t('號】（平票名單：')}${state.dayPkCandidates.join(", ")}${t('號）')}`;
 
                     if (me.seat === speaker) {
-                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">結束我的 PK 發言</button>`;
+                        ctrls.innerHTML += `<button class="action" onclick="nextSpeaker()">${t('結束我的 PK 發言')}</button>`;
                         if (isWolfTeam) {
-                            ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">狼人自爆！</button>`;
+                            ctrls.innerHTML += `<button class="danger" onclick="explodeWolf()">${t('狼人自爆！')}</button>`;
                         }
                     } else {
-                        ctrls.innerHTML += `<span style="color:#888;">請聆聽 PK 候選人 ${speaker} 號發言...</span>`;
+                        ctrls.innerHTML += `<span style="color:#888;">${t('請聆聽 PK 候選人')} ${speaker} ${t('號發言...')}</span>`;
                     }
                     break;
                 }
 
                 case "DAY_SHERIFF_CALL":
-                    title.innerText = "警長歸票階段";
+                    title.innerText = t("警長歸票階段");
                     if (me.isSheriff && me.alive) {
-                        inst.innerText = "你是警長，請選擇歸票號碼：";
+                        inst.innerText = t("你是警長，請選擇歸票號碼：");
                         state.players.filter(p => !p.isSpectator && p.alive && p.seat !== me.seat).forEach(p => {
-                            ctrls.innerHTML += `<button class="action" onclick="sheriffCall(${p.seat})">歸票 ${p.seat}號</button>`;
+                            ctrls.innerHTML += `<button class="action" onclick="sheriffCall(${p.seat})">${t('歸票')} ${p.seat}${t('號')}</button>`;
                         });
-                        ctrls.innerHTML += `<button onclick="sheriffCall(0)">不指定歸票</button>`;
+                        ctrls.innerHTML += `<button onclick="sheriffCall(0)">${t('不指定歸票')}</button>`;
                     } else {
-                        inst.innerText = "請等待警長歸票中...";
+                        inst.innerText = t("請等待警長歸票中...");
                     }
                     break;
 
                 case "DAY_SHERIFF_VOTE": {
-                    title.innerText = "警長投票";
+                    title.innerText = t("警長投票");
                     const isCandidateNow = state.sheriffCandidates.includes(me.seat);
                     const hasWithdrawnInR1 = state.sheriffWithdrawn.includes(me.seat);
                     const canVote = state.sheriffRound === 1 ? (!isCandidateNow && !hasWithdrawnInR1) : (!isCandidateNow);
 
                     if (!canVote) {
-                        inst.innerText = "你無警長投票權（在警上或首輪已退水），等待其他玩家投票中...";
+                        inst.innerText = t("你無警長投票權（在警上或首輪已退水），等待其他玩家投票中...");
                     } else {
                         const myVote = state.votes[me.seat];
-                        inst.innerText = myVote !== undefined ? `已投給【${myVote === 0 ? '棄票' : myVote + '號'}】，等待開票...` : "請投給警長候選人：";
+                        inst.innerText = myVote !== undefined ? `${t('已投給【')}${myVote === 0 ? t('棄票') : myVote + t('號')}${t('】，等待開票...')}` : t("請投給警長候選人：");
                         const candidates = state.players.filter(p => !p.isSpectator && state.sheriffCandidates.includes(p.seat));
 
                         candidates.forEach(p => {
                             const isPicked = myVote === p.seat;
-                            ctrls.innerHTML += `<button class="${isPicked ? 'selected' : ''}" onclick="castVote(${p.seat})">投給 ${p.seat}號 (${p.name})</button>`;
+                            ctrls.innerHTML += `<button class="${isPicked ? 'selected' : ''}" onclick="castVote(${p.seat})">${t('投給')} ${p.seat}${t('號')} (${p.name})</button>`;
                         });
-                        ctrls.innerHTML += `<button class="${myVote === 0 ? 'selected' : ''}" onclick="castVote(0)">棄票</button>`;
+                        ctrls.innerHTML += `<button class="${myVote === 0 ? 'selected' : ''}" onclick="castVote(0)">${t('棄票')}</button>`;
                     }
                     break;
                 }
 
                 case "DAY_VOTE": {
-                    title.innerText = "白天放逐公投";
+                    title.innerText = t("白天放逐公投");
                     if (me.idiotRevealed) {
-                        inst.innerText = "你已翻牌亮出白痴身份，無法參與公投投票。";
+                        inst.innerText = t("你已翻牌亮出白痴身份，無法參與公投投票。");
                         break;
                     }
                     const myVote = state.votes[me.seat];
-                    const sheriffCallNotice = state.sheriffCallTarget ? `（警長歸票目標：${state.sheriffCallTarget === 0 ? '無' : state.sheriffCallTarget + '號'}）` : "";
+                    const sheriffCallNotice = state.sheriffCallTarget ? `（${t('警長歸票目標：')}${state.sheriffCallTarget === 0 ? t('無') : state.sheriffCallTarget + t('號')}）` : "";
                     inst.innerText = myVote !== undefined
-                        ? `已投給【${myVote === 0 ? '棄票' : myVote + '號'}】，等待開票...`
-                        : `請選擇放逐對象：${sheriffCallNotice}`;
+                        ? `${t('已投給【')}${myVote === 0 ? t('棄票') : myVote + t('號')}${t('】，等待開票...')}`
+                        : `${t('請選擇放逐對象：')}${sheriffCallNotice}`;
 
                     state.players.filter(p => !p.isSpectator && p.alive).forEach(p => {
                         const isPicked = myVote === p.seat;
-                        ctrls.innerHTML += `<button class="${isPicked ? 'selected' : ''}" onclick="castVote(${p.seat})">投給 ${p.seat}號 (${p.name})</button>`;
+                        ctrls.innerHTML += `<button class="${isPicked ? 'selected' : ''}" onclick="castVote(${p.seat})">${t('投給')} ${p.seat}${t('號')} (${p.name})</button>`;
                     });
-                    ctrls.innerHTML += `<button class="${myVote === 0 ? 'selected' : ''}" onclick="castVote(0)">棄票</button>`;
+                    ctrls.innerHTML += `<button class="${myVote === 0 ? 'selected' : ''}" onclick="castVote(0)">${t('棄票')}</button>`;
                     break;
                 }
 
                 case "DAY_PK_VOTE": {
-                    title.innerText = "白天 PK 投票";
+                    title.innerText = t("白天 PK 投票");
                     const isOnPkStage = state.dayPkCandidates.includes(me.seat);
                     if (isOnPkStage || me.idiotRevealed) {
-                        inst.innerText = isOnPkStage ? "你在 PK 台上，無投票權。" : "你已翻牌白痴，無投票權。等待其他玩家投票中...";
+                        inst.innerText = isOnPkStage ? t("你在 PK 台上，無投票權。") : t("你已翻牌白痴，無投票權。等待其他玩家投票中...");
                     } else {
                         const myVote = state.votes[me.seat];
-                        inst.innerText = myVote !== undefined ? `已投給【${myVote === 0 ? '棄票' : myVote + '號'}】，等待開票...` : "請投給 PK 台上的候選人：";
+                        inst.innerText = myVote !== undefined ? `${t('已投給【')}${myVote === 0 ? t('棄票') : myVote + t('號')}${t('】，等待開票...')}` : t("請投給 PK 台上的候選人：");
                         state.players.filter(p => !p.isSpectator && state.dayPkCandidates.includes(p.seat)).forEach(p => {
                             const isPicked = myVote === p.seat;
-                            ctrls.innerHTML += `<button class="${isPicked ? 'selected' : ''}" onclick="castVote(${p.seat})">投給 ${p.seat}號 (${p.name})</button>`;
+                            ctrls.innerHTML += `<button class="${isPicked ? 'selected' : ''}" onclick="castVote(${p.seat})">${t('投給')} ${p.seat}${t('號')} (${p.name})</button>`;
                         });
-                        ctrls.innerHTML += `<button class="${myVote === 0 ? 'selected' : ''}" onclick="castVote(0)">棄票</button>`;
+                        ctrls.innerHTML += `<button class="${myVote === 0 ? 'selected' : ''}" onclick="castVote(0)">${t('棄票')}</button>`;
                     }
                     break;
                 }
@@ -1504,6 +1731,9 @@
 
             renderHostButton(ctrls, isHost);
         }
+
+        // 初始化語言
+        applyStaticLanguage();
     </script>
 </body>
 

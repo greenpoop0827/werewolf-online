@@ -12,6 +12,7 @@ const io = new Server(server, {
 app.use(express.static(path.join(__dirname, "public")));
 
 const rooms = {};
+const roomNightTimeouts = {};
 
 function getDefaultRoomState(roomId, hostId) {
   return {
@@ -196,7 +197,15 @@ function checkGameOver(state) {
   return false;
 }
 
+function clearNightTimer(roomId) {
+  if (roomNightTimeouts[roomId]) {
+    clearTimeout(roomNightTimeouts[roomId]);
+    delete roomNightTimeouts[roomId];
+  }
+}
+
 function advanceNightStep(state, currentPhase) {
+  clearNightTimer(state.roomId);
   const hasRole = (roleName) => state.players.some(p => !p.isSpectator && p.role === roleName);
 
   if (currentPhase === "START") {
@@ -237,48 +246,53 @@ function advanceNightStep(state, currentPhase) {
 }
 
 function enterNightPhase(state, phaseName) {
+  clearNightTimer(state.roomId);
   state.phase = phaseName;
   state.speakerStartTime = null;
+
+  const DEAD_GOD_WAIT_MS = 8000;
 
   if (phaseName === "NIGHT_GUARD") {
     emitTTS(state.roomId, "守衛請睜眼。");
     const guardAlive = state.players.some(p => !p.isSpectator && p.role === "守衛" && p.alive);
     if (!guardAlive) {
-      setTimeout(() => {
-        logSpectator(state, "守衛已死亡，自動跳過行動。");
+      roomNightTimeouts[state.roomId] = setTimeout(() => {
+        logSpectator(state, "守衛已出局，模擬時間結束，推進至下一階段。");
         advanceNightStep(state, "NIGHT_GUARD");
         broadcastRoomState(state.roomId);
-      }, 1500);
+      }, DEAD_GOD_WAIT_MS);
     }
   } else if (phaseName === "NIGHT_WOLF") {
     emitTTS(state.roomId, "狼人請睜眼。");
-    const aliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && (p.alive || p.explodedThisDay));
-    if (aliveWolves.length === 0) {
-      setTimeout(() => {
-        logSpectator(state, "狼人全滅，自動跳過行動。");
+    // 🌟 進入狼人階段時，強制清空上一輪殘留的投票紀錄
+    state.wolfTargets = {};
+    const trulyAliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && p.alive);
+    if (trulyAliveWolves.length === 0) {
+      roomNightTimeouts[state.roomId] = setTimeout(() => {
+        logSpectator(state, "存活狼人為0，模擬時間結束，推進至下一階段。");
         advanceNightStep(state, "NIGHT_WOLF");
         broadcastRoomState(state.roomId);
-      }, 1500);
+      }, DEAD_GOD_WAIT_MS);
     }
   } else if (phaseName === "NIGHT_WITCH") {
     emitTTS(state.roomId, "女巫請睜眼。");
     const witchAlive = state.players.some(p => !p.isSpectator && p.role === "女巫" && p.alive);
     if (!witchAlive) {
-      setTimeout(() => {
-        logSpectator(state, "女巫已死亡，自動跳過行動。");
+      roomNightTimeouts[state.roomId] = setTimeout(() => {
+        logSpectator(state, "女巫已出局，模擬時間結束，推進至下一階段。");
         advanceNightStep(state, "NIGHT_WITCH");
         broadcastRoomState(state.roomId);
-      }, 1500);
+      }, DEAD_GOD_WAIT_MS);
     }
   } else if (phaseName === "NIGHT_SEER") {
     emitTTS(state.roomId, "預言家請睜眼。");
     const seerAlive = state.players.some(p => !p.isSpectator && p.role === "預言家" && p.alive);
     if (!seerAlive) {
-      setTimeout(() => {
-        logSpectator(state, "預言家已死亡，自動跳過行動。");
+      roomNightTimeouts[state.roomId] = setTimeout(() => {
+        logSpectator(state, "預言家已出局，模擬時間結束，天亮。");
         finishNight(state);
         broadcastRoomState(state.roomId);
-      }, 1500);
+      }, DEAD_GOD_WAIT_MS);
     }
   }
 }
@@ -287,6 +301,7 @@ function startNight(state) {
   if (checkGameOver(state)) return;
   state.dayCount++;
   state.guardTarget = null;
+  state.wolfTargets = {}; // 🌟 每晚入夜清空狼人投票
   state.witchSaveThisNight = false;
   state.witchPoisonThisNight = null;
   state.lastKilled = null;
@@ -304,6 +319,7 @@ function startNight(state) {
 }
 
 function finishNight(state) {
+  clearNightTimer(state.roomId);
   let deadSeats = [];
   state.hunterDeathReason = {};
 
@@ -315,7 +331,7 @@ function finishNight(state) {
   const isGuarded = state.guardTarget && state.guardTarget === wolfTarget;
   const isSaved = state.witchSaveThisNight;
 
-  if (wolfTarget) {
+  if (wolfTarget && wolfTarget > 0) {
     if (isGuarded && isSaved) {
       deadSeats.push(wolfTarget);
       state.hunterDeathReason[wolfTarget] = "wolf";
@@ -361,7 +377,6 @@ function announceDeathAndStartDay(state) {
 
   logRoom(state, `=== 第 ${state.dayCount} 天死訊公佈：昨晚出局：${deathNotice} ===`);
 
-  // 天亮死訊播報
   if (state.pendingDeathSeats.length > 0) {
     emitTTS(state.roomId, `天亮了，昨晚出局的是 ${state.pendingDeathSeats.join(" 號、")} 號玩家。`);
   } else {
@@ -653,7 +668,32 @@ io.on("connection", (socket) => {
 
     let player = state.players.find(p => p.id === userId);
     if (!player) {
-      if (!state.started) {
+      // 🌟 遊戲進行中：僅允許觀眾中途加入
+      if (state.started) {
+        if (!isSpectator) {
+          socket.emit("ENTRY_ERROR", "該房間遊戲已在進行中！若想觀戰，請勾選「僅以觀眾身分觀戰」。");
+          return;
+        }
+
+        // 建立觀眾物件
+        player = {
+          id: userId,
+          socketId: socket.id,
+          name: name || `觀眾_${userId.slice(-4)}`,
+          seat: null,
+          role: null,
+          alive: true,
+          explodedThisDay: false,
+          isSheriff: false,
+          idiotRevealed: false,
+          isSpectator: true,
+          online: true,
+          lastDisconnectAt: null
+        };
+        state.players.push(player);
+        logRoom(state, `${player.name} 中途加入觀戰（觀眾席）。`);
+      } else {
+        // 遊戲尚未開始：正常入座或加入觀眾席
         const gamePlayers = state.players.filter(p => !p.isSpectator);
         player = {
           id: userId,
@@ -671,11 +711,9 @@ io.on("connection", (socket) => {
         };
         state.players.push(player);
         logRoom(state, `${player.name} 加入了房間 ${player.isSpectator ? '（觀眾席）' : `（${player.seat}號位）`}`);
-      } else {
-        socket.emit("ENTRY_ERROR", "該房間遊戲已在進行中，無法以新玩家身分加入。");
-        return;
       }
     } else {
+      // 既有玩家或觀眾重連
       player.socketId = socket.id;
       player.online = true;
       player.lastDisconnectAt = null;
@@ -708,6 +746,7 @@ io.on("connection", (socket) => {
       socket.leave(roomId);
 
       if (state.players.length === 0) {
+        clearNightTimer(roomId);
         delete rooms[roomId];
         return;
       }
@@ -829,6 +868,7 @@ io.on("connection", (socket) => {
 
     if (actionType === "RESTART_GAME") {
       if (userId !== state.hostId) return;
+      clearNightTimer(roomId);
       state.started = false;
       state.gameOver = false;
       state.winner = null;
@@ -917,21 +957,34 @@ io.on("connection", (socket) => {
       logRoom(state, "守衛完成守護。");
       advanceNightStep(state, "NIGHT_GUARD");
     } else if (actionType === "WOLF_VOTE") {
-      state.wolfTargets[userId] = data.targetSeat;
-      const aliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && (p.alive || p.explodedThisDay));
-      const votes = Object.values(state.wolfTargets);
+      const voter = state.players.find(p => p.id === userId);
+      if (!voter || !voter.alive || !["狼人", "白狼王"].includes(voter.role)) return;
 
-      if (votes.length >= aliveWolves.length) {
-        const allSame = votes.every(v => v === votes[0]);
+      state.wolfTargets[userId] = data.targetSeat;
+
+      // 🌟 嚴格只過濾出「真正活著的狼人」名單與票數
+      const trulyAliveWolves = state.players.filter(p => !p.isSpectator && ["狼人", "白狼王"].includes(p.role) && p.alive);
+      const aliveVotes = trulyAliveWolves
+        .map(w => state.wolfTargets[w.id])
+        .filter(v => v !== undefined);
+
+      // 當所有活狼人都已投票
+      if (aliveVotes.length === trulyAliveWolves.length && trulyAliveWolves.length > 0) {
+        const allSame = aliveVotes.every(v => v === aliveVotes[0]);
         if (allSame) {
-          state.lastKilled = votes[0];
-          logSpectator(state, `狼人行動：統一襲擊目標為【${votes[0]} 號】。`);
-          logRoom(state, "狼人統一襲擊目標。");
+          state.lastKilled = aliveVotes[0];
+          if (aliveVotes[0] === 0) {
+            logSpectator(state, `狼人行動：統一選擇【空刀（不擊殺任何人）】。`);
+            logRoom(state, "狼人統一襲擊目標（選擇空刀）。");
+          } else {
+            logSpectator(state, `狼人行動：統一襲擊目標為【${aliveVotes[0]} 號】。`);
+            logRoom(state, "狼人統一襲擊目標。");
+          }
           advanceNightStep(state, "NIGHT_WOLF");
         }
       }
     } else if (actionType === "WITCH_ACTION") {
-      if (data.save && state.lastKilled) {
+      if (data.save && state.lastKilled && state.lastKilled > 0) {
         state.witchSaveThisNight = true;
         state.witchAntidoteUsed = true;
         logSpectator(state, `女巫行動：使用解藥救起 ${state.lastKilled} 號。`);
@@ -1225,6 +1278,7 @@ setInterval(() => {
   for (const roomId in rooms) {
     const state = rooms[roomId];
     if (state.players.length === 0 || now - state.lastActiveTime > EXPIRE_TIME) {
+      clearNightTimer(roomId);
       delete rooms[roomId];
       continue;
     }
@@ -1233,6 +1287,7 @@ setInterval(() => {
       if (!hasOnlinePlayer) {
         const earliestDisconnect = Math.min(...state.players.map(p => p.lastDisconnectAt || now));
         if (now - earliestDisconnect > ALL_OFFLINE_EXPIRE_TIME) {
+          clearNightTimer(roomId);
           delete rooms[roomId];
         }
       }
